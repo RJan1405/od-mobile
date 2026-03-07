@@ -15,6 +15,7 @@ import type { Scribe } from '@/types';
 
 interface ScribeCardProps {
     scribe: Scribe;
+    onSaveToggle?: (scribeId: number, isSaved: boolean) => void;
 }
 
 // Format counts like web version (1K, 1M)
@@ -25,7 +26,7 @@ const formatCount = (count?: number | null): string => {
     return count.toString();
 };
 
-export default function ScribeCard({ scribe }: ScribeCardProps) {
+export default function ScribeCard({ scribe, onSaveToggle }: ScribeCardProps) {
     const navigation = useNavigation();
     const { colors } = useThemeStore();
     const [isLiked, setIsLiked] = useState(scribe.is_liked || false);
@@ -124,6 +125,7 @@ export default function ScribeCard({ scribe }: ScribeCardProps) {
             const response = await api.toggleSaveScribe(scribe.id);
             if (response.success) {
                 setIsSaved(response.is_saved);
+                onSaveToggle?.(scribe.id, response.is_saved);
             } else {
                 setIsSaved(prevSaved);
             }

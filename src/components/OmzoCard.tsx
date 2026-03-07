@@ -26,6 +26,7 @@ let globalMuteState = false;
 interface OmzoCardProps {
     omzo: Omzo;
     isActive: boolean;
+    onSaveToggle?: (omzoId: number, isSaved: boolean) => void;
 }
 
 // Format counts like TikTok/Instagram (1.2K, 1.2M)
@@ -36,7 +37,7 @@ const formatCount = (count?: number | null): string => {
     return count.toString();
 };
 
-export default function OmzoCard({ omzo, isActive }: OmzoCardProps) {
+export default function OmzoCard({ omzo, isActive, onSaveToggle }: OmzoCardProps) {
     const { colors } = useThemeStore();
     const navigation = useNavigation();
     const { user: currentUser } = useAuthStore();
@@ -134,6 +135,7 @@ export default function OmzoCard({ omzo, isActive }: OmzoCardProps) {
             const response = await api.toggleSaveOmzo(omzo.id);
             if (response.success) {
                 setIsSaved((response as any).is_saved);
+                onSaveToggle?.(omzo.id, (response as any).is_saved);
             } else {
                 setIsSaved(prevSaved);
             }

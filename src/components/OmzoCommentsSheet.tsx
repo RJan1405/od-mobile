@@ -10,6 +10,7 @@ import {
     Platform,
     ActivityIndicator,
     Image,
+    ScrollView,
 } from 'react-native';
 import Modal from 'react-native-modal';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -131,10 +132,7 @@ export default function OmzoCommentsSheet({
         <Modal
             isVisible={isVisible}
             onBackdropPress={onClose}
-            onSwipeComplete={onClose}
-            swipeDirection="down"
             style={styles.modal}
-            propagateSwipe
         >
             <View style={[styles.container, { backgroundColor: colors.surface }]}>
                 {/* Header */}
@@ -143,32 +141,71 @@ export default function OmzoCommentsSheet({
                     <Text style={[styles.headerTitle, { color: colors.text }]}>
                         Comments {comments.length > 0 && `(${comments.length})`}
                     </Text>
+                    <TouchableOpacity
+                        onPress={onClose}
+                        style={styles.closeButton}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                        <Icon name="close" size={24} color={colors.text} />
+                    </TouchableOpacity>
                 </View>
 
                 {/* Comments List */}
-                {isLoading ? (
-                    <View style={styles.loadingContainer}>
-                        <ActivityIndicator size="large" color={colors.primary} />
-                    </View>
-                ) : comments.length === 0 ? (
-                    <View style={styles.emptyContainer}>
-                        <Icon name="chatbubble-outline" size={64} color={colors.textSecondary} />
-                        <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-                            No comments yet
-                        </Text>
-                        <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
-                            Be the first to comment
-                        </Text>
-                    </View>
-                ) : (
-                    <FlatList
-                        data={comments}
-                        renderItem={renderComment}
-                        keyExtractor={(item) => `comment-${item.id}`}
-                        contentContainerStyle={styles.commentsList}
-                        showsVerticalScrollIndicator={false}
-                    />
-                )}
+                <View style={styles.commentsContainer}>
+                    {isLoading ? (
+                        <View style={styles.loadingContainer}>
+                            <ActivityIndicator size="large" color={colors.primary} />
+                        </View>
+                    ) : comments.length === 0 ? (
+                        <View style={styles.emptyContainer}>
+                            <Icon name="chatbubble-outline" size={64} color={colors.textSecondary} />
+                            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+                                No comments yet
+                            </Text>
+                            <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
+                                Be the first to comment
+                            </Text>
+                        </View>
+                    ) : (
+                        <ScrollView
+                            showsVerticalScrollIndicator={true}
+                            nestedScrollEnabled={true}
+                            contentContainerStyle={styles.commentsList}
+                        >
+                            {comments.map((item) => {
+                                const avatarUri = item.user?.profile_picture_url || (item.user as any)?.avatar || '';
+                                const hasValidAvatar = avatarUri && avatarUri.startsWith('http');
+
+                                return (
+                                    <View key={`comment-${item.id}`} style={styles.commentItem}>
+                                        {hasValidAvatar ? (
+                                            <Image source={{ uri: avatarUri }} style={styles.commentAvatar} />
+                                        ) : (
+                                            <View style={[styles.commentAvatar, { backgroundColor: colors.primary }]}>
+                                                <Text style={styles.avatarText}>
+                                                    {item.user?.username?.[0]?.toUpperCase() || '?'}
+                                                </Text>
+                                            </View>
+                                        )}
+                                        <View style={styles.commentContent}>
+                                            <View style={styles.commentHeader}>
+                                                <Text style={[styles.commentUsername, { color: colors.text }]}>
+                                                    {item.user.username}
+                                                </Text>
+                                                <Text style={[styles.commentTime, { color: colors.textSecondary }]}>
+                                                    {formatTime(item.created_at)}
+                                                </Text>
+                                            </View>
+                                            <Text style={[styles.commentText, { color: colors.text }]}>
+                                                {item.content}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                );
+                            })}
+                        </ScrollView>
+                    )}
+                </View>
 
                 {/* Input Section */}
                 <KeyboardAvoidingView
@@ -227,12 +264,18 @@ const styles = StyleSheet.create({
     container: {
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
-        maxHeight: '80%',
+        height: '50%',
     },
     header: {
         alignItems: 'center',
         paddingVertical: 12,
         borderBottomWidth: 1,
+        position: 'relative',
+    },
+    closeButton: {
+        position: 'absolute',
+        right: 16,
+        top: 16,
     },
     swipeIndicator: {
         width: 40,
@@ -244,6 +287,9 @@ const styles = StyleSheet.create({
     headerTitle: {
         fontSize: 18,
         fontWeight: '600',
+    },
+    commentsContainer: {
+        flex: 1,
     },
     loadingContainer: {
         flex: 1,
@@ -267,7 +313,9 @@ const styles = StyleSheet.create({
         marginTop: 8,
     },
     commentsList: {
-        padding: 16,
+        paddingHorizontal: 16,
+        paddingTop: 16,
+        paddingBottom: 20,
     },
     commentItem: {
         flexDirection: 'row',

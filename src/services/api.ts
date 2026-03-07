@@ -298,7 +298,7 @@ class ApiService {
 
     async toggleSaveScribe(scribeId: number): Promise<ApiResponse> {
         try {
-            const response = await this.api.post('/api/toggle-save-post/', { scribe_id: scribeId });
+            const response = await this.api.post('/api/save-scribe/', { scribe_id: scribeId });
             return response.data;
         } catch (error) {
             return this.handleError(error);
@@ -307,7 +307,7 @@ class ApiService {
 
     async toggleSavePost(scribeId: number): Promise<ApiResponse> {
         try {
-            const response = await this.api.post('/api/toggle-save-post/', { scribe_id: scribeId });
+            const response = await this.api.post('/api/save-scribe/', { scribe_id: scribeId });
             return response.data;
         } catch (error) {
             return this.handleError(error);
@@ -403,6 +403,15 @@ class ApiService {
     async toggleSaveOmzo(omzoId: number): Promise<ApiResponse> {
         try {
             const response = await this.api.post('/api/save-omzo/', { omzo_id: omzoId });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async getSavedItems(): Promise<ApiResponse<{ scribes: Scribe[]; omzos: Omzo[] }>> {
+        try {
+            const response = await this.api.get('/api/saved-items/');
             return response.data;
         } catch (error) {
             return this.handleError(error);

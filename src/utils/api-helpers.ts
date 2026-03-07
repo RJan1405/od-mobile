@@ -82,5 +82,6 @@ export function transformOmzoData(omzo: any): any {
         comment_count: omzo.comments_count !== undefined ? omzo.comments_count : (omzo.comment_count || 0),
         is_liked: omzo.is_liked || false,
         is_muted: omzo.is_muted || false,
+        is_saved: omzo.is_saved || false,
     };
 }

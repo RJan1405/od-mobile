@@ -11,7 +11,8 @@ import {
     StatusBar,
     Share,
 } from 'react-native';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import Video from 'react-native-video';
+import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -38,7 +39,9 @@ export default function ProfileScreen() {
     const [user, setUser] = useState<User | null>(null);
     const [scribes, setScribes] = useState<Scribe[]>([]);
     const [omzos, setOmzos] = useState<Omzo[]>([]);
+    const [savedItems, setSavedItems] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [isLoadingSaved, setIsLoadingSaved] = useState(false);
     const [isFollowing, setIsFollowing] = useState(false);
     const [activeTab, setActiveTab] = useState<'scribes' | 'omzos' | 'saved'>('scribes');
     const [postCount, setPostCount] = useState(0);
@@ -133,6 +136,54 @@ export default function ProfileScreen() {
             });
         } catch (error) {
             console.error('Error sharing profile:', error);
+        }
+    };
+
+    const loadSavedItems = async () => {
+        if (!isOwnProfile) return;
+
+        setIsLoadingSaved(true);
+        try {
+            const response = await api.getSavedItems();
+            console.log('📌 Saved items response:', response);
+            if (response.success && (response as any).saved_items) {
+                setSavedItems((response as any).saved_items);
+            }
+        } catch (error) {
+            console.error('Error loading saved items:', error);
+        } finally {
+            setIsLoadingSaved(false);
+        }
+    };
+
+    useEffect(() => {
+        if (activeTab === 'saved' && isOwnProfile) {
+            loadSavedItems();
+        }
+    }, [activeTab]);
+
+    // Reload saved items when screen gains focus
+    useFocusEffect(
+        React.useCallback(() => {
+            if (activeTab === 'saved' && isOwnProfile) {
+                loadSavedItems();
+            }
+        }, [activeTab, isOwnProfile])
+    );
+
+    // Handle save toggle callback from ScribeCard
+    const handleScribeSaveToggle = (scribeId: number, isSaved: boolean) => {
+        if (!isSaved && activeTab === 'saved') {
+            // Remove from saved items if unsaved
+            setSavedItems(prev => prev.filter(item => item.type !== 'scribe' || item.id !== scribeId));
+        }
+    };
+
+    // Handle save toggle callback from saved omzo display
+    const handleOmzoSaveToggle = (omzoId: number, isSaved: boolean) => {
+        if (!isSaved && activeTab === 'saved') {
+            // Remove from saved items if unsaved
+            setSavedItems(prev => prev.filter(item => item.type !== 'omzo' || item.id !== omzoId));
         }
     };
 
@@ -335,23 +386,47 @@ export default function ProfileScreen() {
                     {activeTab === 'omzos' && (
                         omzos.length > 0 ? (
                             <View style={styles.omzosGrid}>
-                                {omzos.map((omzo) => (
-                                    <View
-                                        key={omzo.id}
-                                        style={styles.omzoThumbnail}
-                                    >
-                                        <Image
-                                            source={{ uri: omzo.thumbnail_url || omzo.video_url || omzo.video_file }}
-                                            style={styles.omzoThumbnailImage}
-                                        />
-                                        <View style={styles.omzoInfo}>
-                                            <Icon name="play" size={16} color="#FFFFFF" />
-                                            <Text style={styles.omzoViewCount}>
-                                                {formatCount(omzo.views || omzo.views_count || 0)}
-                                            </Text>
+                                {omzos.map((omzo) => {
+                                    const videoUri = omzo.video_url || omzo.video_file || '';
+                                    const hasValidVideo = videoUri &&
+                                        videoUri !== 'null' &&
+                                        videoUri.trim().length > 0 &&
+                                        videoUri.startsWith('http');
+
+                                    return (
+                                        <View
+                                            key={omzo.id}
+                                            style={styles.omzoThumbnail}
+                                        >
+                                            {hasValidVideo ? (
+                                                <Video
+                                                    source={{ uri: videoUri }}
+                                                    style={styles.omzoThumbnailImage}
+                                                    paused={true}
+                                                    muted={true}
+                                                    resizeMode="cover"
+                                                    poster={videoUri}
+                                                    posterResizeMode="cover"
+                                                />
+                                            ) : (
+                                                <View style={[styles.omzoThumbnailImage, { backgroundColor: colors.border, justifyContent: 'center', alignItems: 'center' }]}>
+                                                    <Icon name="videocam" size={40} color={colors.textSecondary} />
+                                                </View>
+                                            )}
+                                            {omzo.is_saved && (
+                                                <View style={styles.savedBadge}>
+                                                    <Icon name="bookmark" size={16} color="#FFFFFF" />
+                                                </View>
+                                            )}
+                                            <View style={styles.omzoInfo}>
+                                                <Icon name="play" size={16} color="#FFFFFF" />
+                                                <Text style={styles.omzoViewCount}>
+                                                    {formatCount(omzo.views || omzo.views_count || 0)}
+                                                </Text>
+                                            </View>
                                         </View>
-                                    </View>
-                                ))}
+                                    );
+                                })}
                             </View>
                         ) : (
                             <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
@@ -360,9 +435,179 @@ export default function ProfileScreen() {
                         )
                     )}
                     {activeTab === 'saved' && (
-                        <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-                            No saved items yet
-                        </Text>
+                        isLoadingSaved ? (
+                            <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 40 }} />
+                        ) : savedItems.length > 0 ? (
+                            <View>
+                                {savedItems.map((item) => {
+                                    if (item.type === 'scribe') {
+                                        // Transform saved item to Scribe format
+                                        const scribe: Scribe = {
+                                            id: item.id.toString(),
+                                            user: {
+                                                id: item.user.id.toString(),
+                                                username: item.user.username,
+                                                full_name: item.user.full_name || item.user.username,
+                                                profile_picture_url: item.user.profile_picture_url || '',
+                                                is_verified: item.user.is_verified || false,
+                                            },
+                                            content: item.content || '',
+                                            media_type: item.media_type || 'text',
+                                            image_url: item.image_url || '',
+                                            created_at: item.created_at,
+                                            like_count: item.likes || 0,
+                                            dislike_count: item.dislikes || 0,
+                                            comment_count: item.comments || 0,
+                                            repost_count: item.reposts || 0,
+                                            is_liked: false,
+                                            is_disliked: false,
+                                            is_saved: true,
+                                        };
+                                        return <ScribeCard key={`scribe-${item.id}`} scribe={scribe} onSaveToggle={handleScribeSaveToggle} />;
+                                    } else if (item.type === 'omzo') {
+                                        // Display omzo in scribe card format with interactive save
+                                        const SavedOmzoCard = () => {
+                                            const [localIsSaved, setLocalIsSaved] = useState(true);
+
+                                            const handleUnsave = async () => {
+                                                setLocalIsSaved(false);
+                                                try {
+                                                    const response = await api.toggleSaveOmzo(item.id);
+                                                    if (response.success) {
+                                                        handleOmzoSaveToggle(item.id, response.is_saved);
+                                                    } else {
+                                                        setLocalIsSaved(true);
+                                                    }
+                                                } catch (error) {
+                                                    console.error('Error unsaving omzo:', error);
+                                                    setLocalIsSaved(true);
+                                                }
+                                            };
+
+                                            const hasValidAvatar = item.user?.profile_picture_url &&
+                                                item.user.profile_picture_url.startsWith('http');
+                                            const hasValidVideo = item.video_url && item.video_url.startsWith('http');
+
+                                            return (
+                                                <View
+                                                    style={[styles.scribeCard, {
+                                                        backgroundColor: colors.surface,
+                                                        borderColor: colors.border
+                                                    }]}
+                                                >
+                                                    <View style={styles.scribeHeader}>
+                                                        <View style={styles.scribeUserInfo}>
+                                                            {hasValidAvatar ? (
+                                                                <Image
+                                                                    source={{ uri: item.user.profile_picture_url }}
+                                                                    style={styles.scribeAvatar}
+                                                                />
+                                                            ) : (
+                                                                <View style={[styles.scribeAvatar, {
+                                                                    backgroundColor: colors.primary,
+                                                                    justifyContent: 'center',
+                                                                    alignItems: 'center'
+                                                                }]}>
+                                                                    <Text style={styles.scribeAvatarText}>
+                                                                        {item.user?.username?.[0]?.toUpperCase() || 'O'}
+                                                                    </Text>
+                                                                </View>
+                                                            )}
+                                                            <View>
+                                                                <View style={styles.scribeNameRow}>
+                                                                    <Text style={[styles.scribeUsername, { color: colors.text }]}>
+                                                                        {item.user?.full_name || item.user?.username || 'Unknown'}
+                                                                    </Text>
+                                                                    {item.user?.is_verified && (
+                                                                        <Icon name="checkmark-circle" size={14} color={colors.primary} />
+                                                                    )}
+                                                                </View>
+                                                                <Text style={[styles.scribeTimestamp, { color: colors.textSecondary }]}>
+                                                                    @{item.user?.username || 'unknown'} · Omzo Video
+                                                                </Text>
+                                                            </View>
+                                                        </View>
+                                                        <TouchableOpacity>
+                                                            <Icon name="ellipsis-horizontal" size={20} color={colors.textSecondary} />
+                                                        </TouchableOpacity>
+                                                    </View>
+
+                                                    {item.caption && (
+                                                        <Text style={[styles.scribeContent, { color: colors.text }]}>
+                                                            {item.caption}
+                                                        </Text>
+                                                    )}
+
+                                                    {hasValidVideo && (
+                                                        <View style={styles.scribeImageContainer}>
+                                                            <Video
+                                                                source={{ uri: item.video_url }}
+                                                                style={styles.scribeImage}
+                                                                paused={true}
+                                                                muted={true}
+                                                                resizeMode="cover"
+                                                                poster={item.video_url}
+                                                                posterResizeMode="cover"
+                                                            />
+                                                            <View style={styles.videoOverlay}>
+                                                                <View style={styles.playButton}>
+                                                                    <Icon name="play" size={32} color="#FFFFFF" />
+                                                                </View>
+                                                            </View>
+                                                        </View>
+                                                    )}
+
+                                                    <View style={[styles.scribeActions, { borderTopColor: `${colors.border}80` }]}>
+                                                        <View style={styles.scribeActionButton}>
+                                                            <Icon name="heart-outline" size={20} color={colors.textSecondary} />
+                                                            <Text style={[styles.scribeActionText, { color: colors.textSecondary }]}>
+                                                                {formatCount(item.likes || 0)}
+                                                            </Text>
+                                                        </View>
+                                                        <View style={styles.scribeActionButton}>
+                                                            <Icon name="thumbs-down-outline" size={20} color={colors.textSecondary} />
+                                                            <Text style={[styles.scribeActionText, { color: colors.textSecondary }]}>
+                                                                {formatCount(item.dislikes || 0)}
+                                                            </Text>
+                                                        </View>
+                                                        <View style={styles.scribeActionButton}>
+                                                            <Icon name="chatbubble-outline" size={20} color={colors.textSecondary} />
+                                                            <Text style={[styles.scribeActionText, { color: colors.textSecondary }]}>
+                                                                {formatCount(item.comments || 0)}
+                                                            </Text>
+                                                        </View>
+                                                        <View style={styles.scribeActionButton}>
+                                                            <Icon name="repeat-outline" size={20} color={colors.textSecondary} />
+                                                            <Text style={[styles.scribeActionText, { color: colors.textSecondary }]}>
+                                                                {formatCount(item.reposts || 0)}
+                                                            </Text>
+                                                        </View>
+                                                        <View style={styles.scribeActionButton}>
+                                                            <Icon name="share-social-outline" size={20} color={colors.textSecondary} />
+                                                        </View>
+                                                        <View style={{ flex: 1 }} />
+                                                        <TouchableOpacity style={styles.scribeActionButton} onPress={handleUnsave}>
+                                                            <Icon
+                                                                name={localIsSaved ? "bookmark" : "bookmark-outline"}
+                                                                size={20}
+                                                                color={localIsSaved ? colors.primary : colors.textSecondary}
+                                                            />
+                                                        </TouchableOpacity>
+                                                    </View>
+                                                </View>
+                                            );
+                                        };
+
+                                        return <SavedOmzoCard key={`omzo-${item.id}`} />;
+                                    }
+                                    return null;
+                                })}
+                            </View>
+                        ) : (
+                            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+                                No saved items yet
+                            </Text>
+                        )
                     )}
                 </View>
             </ScrollView>
@@ -542,6 +787,100 @@ const styles = StyleSheet.create({
         textShadowColor: 'rgba(0, 0, 0, 0.75)',
         textShadowOffset: { width: 0, height: 1 },
         textShadowRadius: 3,
+    },
+    savedBadge: {
+        position: 'absolute',
+        top: 8,
+        right: 8,
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        borderRadius: 12,
+        padding: 4,
+    },
+    // Scribe card styles (reused for saved omzos)
+    scribeCard: {
+        marginBottom: 12,
+        borderRadius: 12,
+        borderWidth: 1,
+        padding: 12,
+    },
+    scribeHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        marginBottom: 12,
+    },
+    scribeUserInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+    },
+    scribeAvatar: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        marginRight: 10,
+    },
+    scribeAvatarText: {
+        color: '#FFFFFF',
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    scribeNameRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    scribeUsername: {
+        fontSize: 15,
+        fontWeight: '600',
+    },
+    scribeTimestamp: {
+        fontSize: 13,
+        marginTop: 2,
+    },
+    scribeContent: {
+        fontSize: 15,
+        lineHeight: 20,
+        marginBottom: 12,
+    },
+    scribeImageContainer: {
+        borderRadius: 12,
+        overflow: 'hidden',
+        marginBottom: 12,
+        position: 'relative',
+    },
+    scribeImage: {
+        width: '100%',
+        height: 200,
+    },
+    videoOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    },
+    playButton: {
+        width: 60,
+        height: 60,
+        borderRadius: 30,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    scribeActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingTop: 12,
+        borderTopWidth: 1,
+    },
+    scribeActionButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginRight: 16,
+    },
+    scribeActionText: {
+        fontSize: 13,
+        marginLeft: 4,
     },
     errorText: {
         fontSize: 18,
