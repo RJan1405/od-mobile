@@ -67,19 +67,18 @@ export default function ProfileScreen() {
 
                     if (response.success && response.data) {
                         console.log('Setting user data...');
-                        console.log('Follower count:', response.data.follower_count);
-                        console.log('Following count:', response.data.following_count);
-                        console.log('Post count:', response.data.post_count);
                         setUser(response.data);
 
-                        // Set scribes and omzos
                         if (response.scribes) {
-                            console.log('Setting scribes:', response.scribes.length);
                             setScribes(response.scribes);
+                        } else {
+                            setScribes([]);
                         }
+
                         if (response.omzos) {
-                            console.log('Setting omzos:', response.omzos.length);
                             setOmzos(response.omzos);
+                        } else {
+                            setOmzos([]);
                         }
                     } else {
                         console.error('Response not successful or no data:', response);
@@ -88,17 +87,18 @@ export default function ProfileScreen() {
                 setIsLoading(false);
             } else if (username) {
                 const response = await api.getUserProfile(username);
-                console.log('User profile response:', JSON.stringify(response, null, 2));
                 if (response.success && response.data) {
                     setUser(response.data);
-                    // Handle scribes and omzos if returned
                     if (response.scribes) {
-                        console.log('Setting scribes:', response.scribes.length);
                         setScribes(response.scribes);
+                    } else {
+                        setScribes([]);
                     }
+
                     if (response.omzos) {
-                        console.log('Setting omzos:', response.omzos.length);
                         setOmzos(response.omzos);
+                    } else {
+                        setOmzos([]);
                     }
                 }
                 setIsLoading(false);
@@ -224,105 +224,119 @@ export default function ProfileScreen() {
 
             {/* Header */}
             <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
-                <Text style={[styles.headerUsername, { color: colors.text }]}>@{user.username}</Text>
-                {isOwnProfile && (
-                    <TouchableOpacity
-                        onPress={() => navigation.navigate('Settings' as never)}
-                        style={styles.headerIcon}
-                    >
+                <View>
+                    <Text style={[styles.headerName, { color: colors.text }]}>{user.full_name || user.username}</Text>
+                </View>
+                <View style={styles.headerRight}>
+                    <TouchableOpacity onPress={handleShare} style={styles.headerIconWrapper}>
+                        <Icon name="share-outline" size={24} color={colors.text} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => navigation.navigate('Settings' as never)} style={styles.headerIconWrapper}>
                         <Icon name="settings-outline" size={24} color={colors.text} />
                     </TouchableOpacity>
-                )}
+                </View>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
-                {/* Profile Section */}
-                <View style={styles.profileSection}>
-                    {/* Profile Picture */}
-                    {hasValidProfilePic ? (
+                {/* Cover Image Area */}
+                <View style={[styles.coverContainer, { backgroundColor: colors.primary + '20' }]}>
+                    {(user as any).cover_image_url ? (
                         <Image
-                            source={{ uri: profilePicUri }}
-                            style={styles.profileImage}
+                            source={{ uri: (user as any).cover_image_url }}
+                            style={styles.coverImage}
                         />
                     ) : (
-                        <View style={[styles.profileImage, styles.profileImagePlaceholder, { backgroundColor: colors.primary }]}>
-                            <Text style={styles.profileImageText}>
-                                {user.username?.[0]?.toUpperCase() || '?'}
-                            </Text>
-                        </View>
+                        <View style={[styles.coverPlaceholder, { backgroundColor: colors.primary + '30' }]} />
                     )}
+                </View>
 
-                    {/* Name and Username */}
-                    <View style={styles.nameContainer}>
-                        <Text style={[styles.fullName, { color: colors.text }]}>
-                            {user.full_name || user.username}
-                        </Text>
-                        <Text style={[styles.username, { color: colors.textSecondary }]}>
-                            @{user.username}
-                        </Text>
+                <View style={styles.profileHeaderSection}>
+                    {/* Profile Picture (Overlapping) */}
+                    <View style={styles.profileImageWrapper}>
+                        {hasValidProfilePic ? (
+                            <Image
+                                source={{ uri: profilePicUri }}
+                                style={[styles.profileImage, { borderColor: colors.background, borderWidth: 4 }]}
+                            />
+                        ) : (
+                            <View style={[styles.profileImage, styles.profileImagePlaceholder, { backgroundColor: colors.primary, borderColor: colors.background, borderWidth: 4 }]}>
+                                <Text style={styles.profileImageText}>
+                                    {user.username?.[0]?.toUpperCase() || '?'}
+                                </Text>
+                            </View>
+                        )}
                     </View>
 
-                    {/* Bio */}
+                    {/* Action Buttons */}
+                    <View style={styles.profileActions}>
+                        {isOwnProfile ? (
+                            <View style={styles.buttonRow}>
+                                <TouchableOpacity
+                                    style={[styles.editButton, { backgroundColor: colors.background, borderColor: colors.border, borderWidth: 1 }]}
+                                    onPress={() => navigation.navigate('EditProfile' as never)}
+                                >
+                                    <Text style={[styles.editButtonText, { color: colors.text }]}>Edit Profile</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.shareButton, { borderColor: colors.border, backgroundColor: colors.background, borderWidth: 1 }]}
+                                    onPress={handleShare}
+                                >
+                                    <Text style={[styles.shareButtonText, { color: colors.text }]}>Share</Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <TouchableOpacity
+                                onPress={handleFollow}
+                                style={[styles.followButton, { backgroundColor: isFollowing ? colors.background : colors.primary, borderWidth: isFollowing ? 1 : 0, borderColor: colors.border }]}
+                            >
+                                <Text style={[styles.followButtonText, { color: isFollowing ? colors.text : '#FFFFFF' }]}>
+                                    {isFollowing ? 'Following' : 'Follow'}
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                </View>
+
+                {/* User Info Section */}
+                <View style={styles.userInfoSection}>
+                    <Text style={[styles.fullNameText, { color: colors.text }]}>
+                        {user.full_name || user.username}
+                    </Text>
+                    <Text style={[styles.usernameText, { color: colors.textSecondary }]}>
+                        @{user.username}
+                    </Text>
+
                     {user.bio && (
-                        <Text style={[styles.bio, { color: colors.text }]}>
+                        <Text style={[styles.bioText, { color: colors.text }]}>
                             {user.bio}
                         </Text>
                     )}
 
-                    {/* Stats Row */}
-                    <View style={styles.statsRow}>
-                        <View style={styles.statItem}>
-                            <Text style={[styles.statValue, { color: colors.text }]}>
-                                {user.post_count || 0}
-                            </Text>
-                            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
-                                Scribes
-                            </Text>
+                    <View style={styles.locationJoinedRow}>
+                        <View style={styles.infoItem}>
+                            <Icon name="calendar-outline" size={16} color={colors.textSecondary} />
+                            <Text style={[styles.infoText, { color: colors.textSecondary }]}>Joined 2024</Text>
                         </View>
-                        <View style={styles.statItem}>
-                            <Text style={[styles.statValue, { color: colors.text }]}>
-                                {user.follower_count}
-                            </Text>
-                            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
-                                Followers
-                            </Text>
-                        </View>
-                        <View style={styles.statItem}>
-                            <Text style={[styles.statValue, { color: colors.text }]}>
-                                {user.following_count}
-                            </Text>
-                            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
-                                Following
-                            </Text>
+                        <View style={[styles.infoItem, { marginLeft: 16 }]}>
+                            <Icon name="location-outline" size={16} color={colors.textSecondary} />
+                            <Text style={[styles.infoText, { color: colors.textSecondary }]}>Worldwide</Text>
                         </View>
                     </View>
 
-                    {/* Action Buttons */}
-                    {isOwnProfile ? (
-                        <View style={styles.buttonRow}>
-                            <TouchableOpacity
-                                style={[styles.editButton, { backgroundColor: colors.primary }]}
-                                onPress={() => navigation.navigate('Settings' as never)}
-                            >
-                                <Text style={styles.editButtonText}>Edit Profile</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.shareButton, { borderColor: colors.border, backgroundColor: colors.surface }]}
-                                onPress={handleShare}
-                            >
-                                <Text style={[styles.shareButtonText, { color: colors.text }]}>Share Profile</Text>
-                            </TouchableOpacity>
+                    <View style={styles.newStatsRow}>
+                        <View style={styles.newStatItem}>
+                            <Text style={[styles.newStatValue, { color: colors.text }]}>{user.post_count || 0}</Text>
+                            <Text style={[styles.newStatLabel, { color: colors.textSecondary }]}>Posts</Text>
                         </View>
-                    ) : (
-                        <TouchableOpacity
-                            onPress={handleFollow}
-                            style={[styles.followButton, { backgroundColor: isFollowing ? colors.surface : colors.primary, borderWidth: isFollowing ? 1 : 0, borderColor: colors.border }]}
-                        >
-                            <Text style={[styles.followButtonText, { color: isFollowing ? colors.text : '#FFFFFF' }]}>
-                                {isFollowing ? 'Following' : 'Follow'}
-                            </Text>
-                        </TouchableOpacity>
-                    )}
+                        <View style={styles.newStatItem}>
+                            <Text style={[styles.newStatValue, { color: colors.text }]}>{formatCount(user.follower_count)}</Text>
+                            <Text style={[styles.newStatLabel, { color: colors.textSecondary }]}>Followers</Text>
+                        </View>
+                        <View style={styles.newStatItem}>
+                            <Text style={[styles.newStatValue, { color: colors.text }]}>{formatCount(user.following_count)}</Text>
+                            <Text style={[styles.newStatLabel, { color: colors.textSecondary }]}>Following</Text>
+                        </View>
+                    </View>
                 </View>
 
                 {/* Tabs */}
@@ -332,7 +346,7 @@ export default function ProfileScreen() {
                         onPress={() => setActiveTab('scribes')}
                     >
                         <Icon
-                            name="grid-outline"
+                            name={activeTab === 'scribes' ? "grid" : "grid-outline"}
                             size={20}
                             color={activeTab === 'scribes' ? colors.primary : colors.textSecondary}
                         />
@@ -345,7 +359,7 @@ export default function ProfileScreen() {
                         onPress={() => setActiveTab('omzos')}
                     >
                         <Icon
-                            name="play-circle-outline"
+                            name={activeTab === 'omzos' ? "film" : "film-outline"}
                             size={20}
                             color={activeTab === 'omzos' ? colors.primary : colors.textSecondary}
                         />
@@ -359,7 +373,7 @@ export default function ProfileScreen() {
                             onPress={() => setActiveTab('saved')}
                         >
                             <Icon
-                                name="bookmark-outline"
+                                name={activeTab === 'saved' ? "bookmark" : "bookmark-outline"}
                                 size={20}
                                 color={activeTab === 'saved' ? colors.primary : colors.textSecondary}
                             />
@@ -394,37 +408,61 @@ export default function ProfileScreen() {
                                         videoUri.startsWith('http');
 
                                     return (
-                                        <View
+                                        <TouchableOpacity
                                             key={omzo.id}
                                             style={styles.omzoThumbnail}
+                                            onPress={() => {
+                                                console.log('Omzo clicked:', omzo.id);
+                                                // Navigate to OmzoViewer with transformed data
+                                                const transformedOmzo = {
+                                                    id: omzo.id,
+                                                    user: omzo.user,
+                                                    video_file: videoUri,
+                                                    video_url: videoUri,
+                                                    url: videoUri,
+                                                    caption: omzo.caption || '',
+                                                    created_at: omzo.created_at,
+                                                    views_count: omzo.views || omzo.views_count || 0,
+                                                    like_count: omzo.likes || omzo.like_count || 0,
+                                                    dislike_count: omzo.dislikes || omzo.dislike_count || 0,
+                                                    comment_count: omzo.comments || omzo.comment_count || 0,
+                                                    is_liked: omzo.is_liked || false,
+                                                    is_disliked: omzo.is_disliked || false,
+                                                    is_saved: omzo.is_saved || false,
+                                                };
+                                                (navigation as any).navigate('OmzoViewer', { omzo: transformedOmzo });
+                                            }}
+                                            activeOpacity={0.8}
                                         >
-                                            {hasValidVideo ? (
-                                                <Video
-                                                    source={{ uri: videoUri }}
-                                                    style={styles.omzoThumbnailImage}
-                                                    paused={true}
-                                                    muted={true}
-                                                    resizeMode="cover"
-                                                    poster={videoUri}
-                                                    posterResizeMode="cover"
-                                                />
-                                            ) : (
-                                                <View style={[styles.omzoThumbnailImage, { backgroundColor: colors.border, justifyContent: 'center', alignItems: 'center' }]}>
-                                                    <Icon name="videocam" size={40} color={colors.textSecondary} />
-                                                </View>
-                                            )}
+                                            <View style={styles.omzoThumbnailImage} pointerEvents="none">
+                                                {hasValidVideo ? (
+                                                    <Video
+                                                        source={{ uri: videoUri }}
+                                                        style={{ width: '100%', height: '100%' }}
+                                                        paused={true}
+                                                        muted={true}
+                                                        resizeMode="cover"
+                                                        poster={videoUri}
+                                                        posterResizeMode="cover"
+                                                    />
+                                                ) : (
+                                                    <View style={[{ width: '100%', height: '100%', backgroundColor: colors.border, justifyContent: 'center', alignItems: 'center' }]}>
+                                                        <Icon name="videocam" size={40} color={colors.textSecondary} />
+                                                    </View>
+                                                )}
+                                            </View>
                                             {omzo.is_saved && (
-                                                <View style={styles.savedBadge}>
+                                                <View style={styles.savedBadge} pointerEvents="none">
                                                     <Icon name="bookmark" size={16} color="#FFFFFF" />
                                                 </View>
                                             )}
-                                            <View style={styles.omzoInfo}>
+                                            <View style={styles.omzoInfo} pointerEvents="none">
                                                 <Icon name="play" size={16} color="#FFFFFF" />
                                                 <Text style={styles.omzoViewCount}>
                                                     {formatCount(omzo.views || omzo.views_count || 0)}
                                                 </Text>
                                             </View>
-                                        </View>
+                                        </TouchableOpacity>
                                     );
                                 })}
                             </View>
@@ -445,14 +483,11 @@ export default function ProfileScreen() {
                                         const scribe: Scribe = {
                                             id: item.id.toString(),
                                             user: {
-                                                id: item.user.id.toString(),
-                                                username: item.user.username,
-                                                full_name: item.user.full_name || item.user.username,
-                                                profile_picture_url: item.user.profile_picture_url || '',
-                                                is_verified: item.user.is_verified || false,
-                                            },
+                                                ...item.user,
+                                                id: Number(item.user.id),
+                                            } as User,
                                             content: item.content || '',
-                                            media_type: item.media_type || 'text',
+                                            content_type: item.media_type || 'text',
                                             image_url: item.image_url || '',
                                             created_at: item.created_at,
                                             like_count: item.likes || 0,
@@ -474,7 +509,7 @@ export default function ProfileScreen() {
                                                 try {
                                                     const response = await api.toggleSaveOmzo(item.id);
                                                     if (response.success) {
-                                                        handleOmzoSaveToggle(item.id, response.is_saved);
+                                                        handleOmzoSaveToggle(item.id, response.is_saved || false);
                                                     } else {
                                                         setLocalIsSaved(true);
                                                     }
@@ -539,7 +574,30 @@ export default function ProfileScreen() {
                                                     )}
 
                                                     {hasValidVideo && (
-                                                        <View style={styles.scribeImageContainer}>
+                                                        <TouchableOpacity
+                                                            style={styles.scribeImageContainer}
+                                                            onPress={() => {
+                                                                // Navigate to OmzoViewer with transformed data
+                                                                const transformedOmzo = {
+                                                                    id: item.id,
+                                                                    user: item.user,
+                                                                    video_file: item.video_url,
+                                                                    video_url: item.video_url,
+                                                                    url: item.video_url,
+                                                                    caption: item.caption || '',
+                                                                    created_at: item.created_at,
+                                                                    views_count: item.views || 0,
+                                                                    like_count: item.likes || 0,
+                                                                    dislike_count: item.dislikes || 0,
+                                                                    comment_count: item.comments || 0,
+                                                                    is_liked: item.is_liked || false,
+                                                                    is_disliked: item.is_disliked || false,
+                                                                    is_saved: localIsSaved,
+                                                                };
+                                                                (navigation as any).navigate('OmzoViewer', { omzo: transformedOmzo });
+                                                            }}
+                                                            activeOpacity={0.9}
+                                                        >
                                                             <Video
                                                                 source={{ uri: item.video_url }}
                                                                 style={styles.scribeImage}
@@ -549,12 +607,12 @@ export default function ProfileScreen() {
                                                                 poster={item.video_url}
                                                                 posterResizeMode="cover"
                                                             />
-                                                            <View style={styles.videoOverlay}>
+                                                            <View style={styles.videoOverlay} pointerEvents="none">
                                                                 <View style={styles.playButton}>
                                                                     <Icon name="play" size={32} color="#FFFFFF" />
                                                                 </View>
                                                             </View>
-                                                        </View>
+                                                        </TouchableOpacity>
                                                     )}
 
                                                     <View style={[styles.scribeActions, { borderTopColor: `${colors.border}80` }]}>
@@ -627,30 +685,47 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingHorizontal: 16,
+        paddingHorizontal: 20,
         paddingVertical: 12,
         borderBottomWidth: 1,
     },
-    headerUsername: {
-        fontSize: 18,
-        fontWeight: '600',
-    },
-    headerIcon: {
-        width: 40,
-        height: 40,
-        justifyContent: 'center',
+    headerRight: {
+        flexDirection: 'row',
         alignItems: 'center',
     },
-    profileSection: {
-        paddingHorizontal: 20,
-        paddingTop: 20,
-        paddingBottom: 12,
+    headerName: {
+        fontSize: 16,
+        fontWeight: '700',
+    },
+    headerPostCount: {
+        fontSize: 12,
+    },
+    coverContainer: {
+        height: 120,
+        width: '100%',
+    },
+    coverImage: {
+        width: '100%',
+        height: '100%',
+    },
+    coverPlaceholder: {
+        width: '100%',
+        height: '100%',
+    },
+    profileHeaderSection: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-end',
+        paddingHorizontal: 16,
+        marginTop: -40,
+    },
+    profileImageWrapper: {
+        padding: 4,
     },
     profileImage: {
         width: 80,
         height: 80,
-        borderRadius: 40,
-        marginBottom: 12,
+        borderRadius: 12,
     },
     profileImagePlaceholder: {
         justifyContent: 'center',
@@ -661,76 +736,93 @@ const styles = StyleSheet.create({
         fontSize: 32,
         fontWeight: '700',
     },
-    nameContainer: {
+    profileActions: {
         marginBottom: 8,
     },
-    fullName: {
-        fontSize: 20,
-        fontWeight: '700',
+    userInfoSection: {
+        paddingHorizontal: 20,
+        paddingTop: 12,
+        paddingBottom: 20,
+    },
+    fullNameText: {
+        fontSize: 22,
+        fontWeight: '800',
         marginBottom: 2,
     },
-    username: {
-        fontSize: 14,
+    usernameText: {
+        fontSize: 15,
+        marginBottom: 12,
     },
-    bio: {
-        fontSize: 14,
-        lineHeight: 20,
+    bioText: {
+        fontSize: 15,
+        lineHeight: 22,
         marginBottom: 16,
     },
-    statsRow: {
+    locationJoinedRow: {
         flexDirection: 'row',
-        marginBottom: 16,
-        gap: 24,
+        alignItems: 'center',
+        marginBottom: 20,
     },
-    statItem: {
+    infoItem: {
         flexDirection: 'row',
-        alignItems: 'baseline',
-        gap: 4,
+        alignItems: 'center',
+        gap: 6,
     },
-    statValue: {
+    infoText: {
+        fontSize: 14,
+    },
+    newStatsRow: {
+        flexDirection: 'row',
+        gap: 16,
+    },
+    newStatItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    newStatValue: {
         fontSize: 16,
-        fontWeight: '700',
+        fontWeight: '800',
     },
-    statLabel: {
+    newStatLabel: {
         fontSize: 14,
     },
     buttonRow: {
         flexDirection: 'row',
-        gap: 10,
+        gap: 8,
     },
     editButton: {
-        flex: 1,
-        height: 36,
-        borderRadius: 8,
+        paddingHorizontal: 16,
+        height: 38,
+        borderRadius: 20,
         justifyContent: 'center',
         alignItems: 'center',
     },
     editButtonText: {
-        color: '#FFFFFF',
-        fontSize: 15,
-        fontWeight: '600',
+        fontSize: 14,
+        fontWeight: '700',
     },
     shareButton: {
-        flex: 1,
-        height: 36,
-        borderRadius: 8,
+        paddingHorizontal: 16,
+        height: 38,
+        borderRadius: 20,
         justifyContent: 'center',
         alignItems: 'center',
-        borderWidth: 1,
     },
     shareButtonText: {
-        fontSize: 15,
-        fontWeight: '600',
+        fontSize: 14,
+        fontWeight: '700',
     },
     followButton: {
-        height: 36,
-        borderRadius: 8,
+        paddingHorizontal: 24,
+        height: 38,
+        borderRadius: 20,
         justifyContent: 'center',
         alignItems: 'center',
     },
     followButtonText: {
-        fontSize: 15,
-        fontWeight: '600',
+        fontSize: 14,
+        fontWeight: '700',
     },
     tabBar: {
         flexDirection: 'row',
@@ -739,14 +831,14 @@ const styles = StyleSheet.create({
     tab: {
         flex: 1,
         flexDirection: 'row',
-        height: 48,
+        height: 50,
         justifyContent: 'center',
         alignItems: 'center',
-        gap: 6,
+        gap: 8,
     },
     tabLabel: {
-        fontSize: 14,
-        fontWeight: '500',
+        fontSize: 15,
+        fontWeight: '600',
     },
     content: {
         paddingVertical: 10,
@@ -884,5 +976,9 @@ const styles = StyleSheet.create({
     },
     errorText: {
         fontSize: 18,
+    },
+    headerIconWrapper: {
+        marginLeft: 15,
+        padding: 5,
     },
 });

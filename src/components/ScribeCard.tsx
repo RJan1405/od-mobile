@@ -10,128 +10,125 @@ import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { formatDistanceToNow } from 'date-fns';
 import { useThemeStore } from '@/stores/themeStore';
+import { useAuthStore } from '@/stores/authStore';
 import api from '@/services/api';
 import type { Scribe } from '@/types';
 
 interface ScribeCardProps {
     scribe: Scribe;
     onSaveToggle?: (scribeId: number, isSaved: boolean) => void;
+    onPress?: () => void;
 }
 
-// Format counts like web version (1K, 1M)
+// Format counts (1K, 1M)
 const formatCount = (count?: number | null): string => {
     if (count === undefined || count === null) return '0';
-    if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M';
-    if (count >= 1000) return (count / 1000).toFixed(1) + 'K';
+    if (count >= 1000000) return (count / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (count >= 1000) return (count / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
     return count.toString();
 };
 
-export default function ScribeCard({ scribe, onSaveToggle }: ScribeCardProps) {
+// Format relative time like "2h ago"
+const formatRelativeTime = (timestamp?: string | null): string => {
+    if (!timestamp) return '';
+    try {
+        const date = new Date(timestamp);
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMins / 60);
+        const diffDays = Math.floor(diffHours / 24);
+
+        if (diffMins < 1) return 'just now';
+        if (diffMins < 60) return `${diffMins}m ago`;
+        if (diffHours < 24) return `${diffHours}h ago`;
+        if (diffDays < 7) return `${diffDays}d ago`;
+        return formatDistanceToNow(date, { addSuffix: false });
+    } catch {
+        return '';
+    }
+};
+
+// Parse content and highlight hashtags/mentions
+function renderContent(content: string, textColor: string) {
+    const parts = content.split(/(#\w+|@\w+)/g);
+    return (
+        <Text style={[styles.content, { color: textColor }]}>
+            {parts.map((part, idx) => {
+                if (part.startsWith('#') || part.startsWith('@')) {
+                    return (
+                        <Text key={idx} style={styles.hashtag}>
+                            {part}
+                        </Text>
+                    );
+                }
+                return <Text key={idx}>{part}</Text>;
+            })}
+        </Text>
+    );
+}
+
+export default function ScribeCard({ scribe, onSaveToggle, onPress }: ScribeCardProps) {
     const navigation = useNavigation();
     const { colors } = useThemeStore();
+    const { user: currentUser } = useAuthStore();
     const [isLiked, setIsLiked] = useState(scribe.is_liked || false);
-    const [isDisliked, setIsDisliked] = useState(scribe.is_disliked || false);
     const [isSaved, setIsSaved] = useState(scribe.is_saved || false);
-    const [likeCount, setLikeCount] = useState(scribe.like_count);
-    const [dislikeCount, setDislikeCount] = useState(scribe.dislike_count || 0);
+    const [isFollowing, setIsFollowing] = useState((scribe.user as any)?.is_following || (scribe.user as any)?.isFollowing || false);
+    const [likeCount, setLikeCount] = useState(scribe.like_count || 0);
     const [repostCount, setRepostCount] = useState(scribe.repost_count || 0);
 
+    const isOwnScribe = currentUser?.username === scribe.user?.username;
+
     const handleLike = async () => {
-        const prevLiked = isLiked;
+        const prev = isLiked;
         const prevCount = likeCount;
-        const prevDisliked = isDisliked;
-        const prevDislikedCount = dislikeCount;
-
-        // Optimistic update
-        if (isLiked) {
-            setIsLiked(false);
-            setLikeCount(prev => Math.max(0, prev - 1));
-        } else {
-            setIsLiked(true);
-            setLikeCount(prev => prev + 1);
-            if (isDisliked) {
-                setIsDisliked(false);
-                setDislikeCount(prev => Math.max(0, prev - 1));
-            }
-        }
-
+        setIsLiked(!isLiked);
+        setLikeCount(prev => isLiked ? Math.max(0, prev - 1) : prev + 1);
         try {
             const response = await api.toggleLike(scribe.id);
             if (response.success) {
-                setIsLiked(response.is_liked);
-                setLikeCount(response.like_count);
+                setIsLiked((response as any).is_liked);
+                setLikeCount((response as any).like_count);
             } else {
-                // Rollback
-                setIsLiked(prevLiked);
+                setIsLiked(prev);
                 setLikeCount(prevCount);
-                setIsDisliked(prevDisliked);
-                setDislikeCount(prevDislikedCount);
             }
-        } catch (error) {
-            console.error('Error toggling like:', error);
-            // Rollback
-            setIsLiked(prevLiked);
+        } catch {
+            setIsLiked(prev);
             setLikeCount(prevCount);
-            setIsDisliked(prevDisliked);
-            setDislikeCount(prevDislikedCount);
-        }
-    };
-
-    const handleDislike = async () => {
-        const prevDisliked = isDisliked;
-        const prevCount = dislikeCount;
-        const prevLiked = isLiked;
-        const prevLikedCount = likeCount;
-
-        // Optimistic update
-        if (isDisliked) {
-            setIsDisliked(false);
-            setDislikeCount(prev => Math.max(0, prev - 1));
-        } else {
-            setIsDisliked(true);
-            setDislikeCount(prev => prev + 1);
-            if (isLiked) {
-                setIsLiked(false);
-                setLikeCount(prev => Math.max(0, prev - 1));
-            }
-        }
-
-        try {
-            const response = await api.toggleDislike(scribe.id);
-            if (response.success) {
-                setIsDisliked(response.is_disliked);
-            } else {
-                // Rollback
-                setIsDisliked(prevDisliked);
-                setDislikeCount(prevCount);
-                setIsLiked(prevLiked);
-                setLikeCount(prevLikedCount);
-            }
-        } catch (error) {
-            console.error('Error toggling dislike:', error);
-            // Rollback
-            setIsDisliked(prevDisliked);
-            setDislikeCount(prevCount);
-            setIsLiked(prevLiked);
-            setLikeCount(prevLikedCount);
         }
     };
 
     const handleSave = async () => {
-        const prevSaved = isSaved;
+        const prev = isSaved;
         setIsSaved(!isSaved);
-
         try {
             const response = await api.toggleSaveScribe(scribe.id);
             if (response.success) {
-                setIsSaved(response.is_saved);
-                onSaveToggle?.(scribe.id, response.is_saved);
+                setIsSaved((response as any).is_saved);
+                onSaveToggle?.(scribe.id, (response as any).is_saved);
             } else {
-                setIsSaved(prevSaved);
+                setIsSaved(prev);
             }
-        } catch (error) {
-            console.error('Error toggling save:', error);
-            setIsSaved(prevSaved);
+        } catch {
+            setIsSaved(prev);
+        }
+    };
+
+    const handleFollow = async () => {
+        if (!scribe.user?.username) return;
+        const prev = isFollowing;
+        setIsFollowing(!isFollowing);
+        try {
+            const response = await api.toggleFollow(scribe.user.username);
+            if (response.success) {
+                setIsFollowing((response as any).is_following ?? !prev);
+            } else {
+                setIsFollowing(prev);
+            }
+        } catch {
+            setIsFollowing(prev);
         }
     };
 
@@ -140,120 +137,128 @@ export default function ScribeCard({ scribe, onSaveToggle }: ScribeCardProps) {
         navigation.navigate('Profile' as never, { username: scribe.user.username } as never);
     };
 
-    const avatarUri = scribe.user?.profile_picture_url || scribe.user?.avatar || '';
-    const imageUri = scribe.media_url || scribe.image_url || scribe.mediaUrl || '';
-
-    // Debug logging
-    if (imageUri) {
-        console.log('📸 ScribeCard imageUri:', imageUri);
-        console.log('📸 Full scribe data:', JSON.stringify(scribe, null, 2));
-    }
-
-    // Only use avatar if it's a valid URL (not empty or 'null')
-    const hasValidAvatar = avatarUri && avatarUri !== 'null' && avatarUri.length > 0 && avatarUri.startsWith('http');
+    const avatarUri = scribe.user?.profile_picture_url || (scribe.user as any)?.avatar || '';
+    const imageUri = scribe.media_url || scribe.image_url || (scribe as any).mediaUrl || '';
+    const hasValidAvatar = avatarUri && avatarUri !== 'null' && avatarUri.startsWith('http');
     const hasValidImage = imageUri && imageUri !== 'null' && imageUri.trim().length > 0 && imageUri.startsWith('http');
 
-    console.log('📸 hasValidImage:', hasValidImage, 'imageUri:', imageUri);
+    const createdAt = scribe.timestamp || (scribe as any).createdAt || (scribe as any).created_at;
+    const relativeTime = formatRelativeTime(createdAt);
 
     return (
-        <View style={[styles.container, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.header}>
-                <TouchableOpacity style={styles.userInfo} onPress={handleProfilePress}>
-                    {hasValidAvatar ? (
-                        <Image
-                            source={{ uri: avatarUri }}
-                            style={styles.avatar}
-                        />
-                    ) : (
-                        <View style={[styles.avatar, { backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' }]}>
-                            <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>
-                                {scribe.user?.username?.[0]?.toUpperCase() || '?'}
-                            </Text>
-                        </View>
-                    )}
-                    <View>
+        <View style={styles.card}>
+            {/* Tappable area: header + content + image */}
+            <TouchableOpacity
+                activeOpacity={onPress ? 0.75 : 1}
+                onPress={onPress}
+                disabled={!onPress}
+            >
+                {/* Header */}
+                <View style={styles.header}>
+                    <TouchableOpacity style={styles.avatarWrap} onPress={handleProfilePress} activeOpacity={0.85}>
+                        {hasValidAvatar ? (
+                            <Image source={{ uri: avatarUri }} style={styles.avatar} />
+                        ) : (
+                            <View style={[styles.avatar, styles.avatarFallback]}>
+                                <Text style={styles.avatarLetter}>
+                                    {scribe.user?.username?.[0]?.toUpperCase() || '?'}
+                                </Text>
+                            </View>
+                        )}
+                    </TouchableOpacity>
+
+                    <View style={styles.headerMid}>
                         <View style={styles.nameRow}>
-                            <Text style={[styles.username, { color: colors.text }]}>
-                                {scribe.user?.full_name || scribe.user?.username || 'Unknown'}
-                            </Text>
+                            <TouchableOpacity onPress={handleProfilePress} activeOpacity={0.85}>
+                                <Text style={styles.displayName}>
+                                    {scribe.user?.full_name || scribe.user?.username || 'Unknown'}
+                                </Text>
+                            </TouchableOpacity>
                             {scribe.user?.is_verified && (
-                                <Icon name="checkmark-circle" size={14} color={colors.primary} />
+                                <Icon name="checkmark-circle" size={14} color="#3B82F6" style={{ marginLeft: 3 }} />
                             )}
+                            {relativeTime ? (
+                                <Text style={styles.dotSep}>·</Text>
+                            ) : null}
+                            {relativeTime ? (
+                                <Text style={styles.timestamp}>{relativeTime}</Text>
+                            ) : null}
                         </View>
-                        <Text style={[styles.timestamp, { color: colors.textSecondary }]}>
-                            @{scribe.user?.username || 'unknown'} · {scribe.timestamp || scribe.createdAt ? formatDistanceToNow(new Date(scribe.timestamp || scribe.createdAt), { addSuffix: false }) : 'Just now'}
-                        </Text>
+                        <Text style={styles.handle}>@{scribe.user?.username || 'unknown'}</Text>
                     </View>
-                </TouchableOpacity>
 
-                <TouchableOpacity>
-                    <Icon name="ellipsis-horizontal" size={20} color={colors.textSecondary} />
-                </TouchableOpacity>
-            </View>
+                    {!isOwnScribe && (
+                        <TouchableOpacity
+                            style={[styles.followPill, isFollowing && styles.followPillActive]}
+                            onPress={handleFollow}
+                            activeOpacity={0.8}
+                        >
+                            <Text style={[styles.followPillText, isFollowing && styles.followPillTextActive]}>
+                                {isFollowing ? 'Following' : 'Follow'}
+                            </Text>
+                        </TouchableOpacity>
+                    )}
 
-            {scribe.content && (
-                <Text style={[styles.content, { color: colors.text }]}>
-                    {scribe.content}
-                </Text>
-            )}
+                    <TouchableOpacity style={styles.moreBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <Icon name="ellipsis-horizontal" size={18} color="#9CA3AF" />
+                    </TouchableOpacity>
+                </View>
 
-            {hasValidImage ? (
-                <Image
-                    source={{ uri: imageUri }}
-                    style={styles.image}
-                    resizeMode="cover"
-                />
-            ) : null}
+                {/* Content */}
+                {scribe.content ? renderContent(scribe.content, '#111827') : null}
 
-            <View style={[styles.actions, { borderTopColor: `${colors.border}80` }]}>
-                <TouchableOpacity style={styles.actionButton} onPress={handleLike}>
+                {/* Image */}
+                {hasValidImage && (
+                    <Image
+                        source={{ uri: imageUri }}
+                        style={styles.image}
+                        resizeMode="cover"
+                    />
+                )}
+            </TouchableOpacity>
+
+            {/* Action Bar */}
+            <View style={styles.actions}>
+                {/* Like */}
+                <TouchableOpacity style={styles.actionBtn} onPress={handleLike} activeOpacity={0.7}>
                     <Icon
                         name={isLiked ? 'heart' : 'heart-outline'}
                         size={20}
-                        color={isLiked ? '#EF4444' : colors.textSecondary}
+                        color={isLiked ? '#EF4444' : '#9CA3AF'}
                     />
-                    <Text style={[styles.actionText, { color: isLiked ? '#EF4444' : colors.textSecondary }]}>
+                    <Text style={[styles.actionCount, isLiked && { color: '#EF4444' }]}>
                         {formatCount(likeCount)}
                     </Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.actionButton} onPress={handleDislike}>
-                    <Icon
-                        name={isDisliked ? 'thumbs-down' : 'thumbs-down-outline'}
-                        size={20}
-                        color={isDisliked ? colors.primary : colors.textSecondary}
-                    />
-                    <Text style={[styles.actionText, { color: isDisliked ? colors.primary : colors.textSecondary }]}>
-                        {formatCount(dislikeCount)}
-                    </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.actionButton}>
-                    <Icon name="chatbubble-outline" size={20} color={colors.textSecondary} />
-                    <Text style={[styles.actionText, { color: colors.textSecondary }]}>
+                {/* Comment */}
+                <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7}>
+                    <Icon name="chatbubble-outline" size={20} color="#9CA3AF" />
+                    <Text style={styles.actionCount}>
                         {formatCount(scribe.comment_count || 0)}
                     </Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.actionButton}>
-                    <Icon name="repeat-outline" size={20} color={colors.textSecondary} />
-                    <Text style={[styles.actionText, { color: colors.textSecondary }]}>
-                        {formatCount(repostCount)}
-                    </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.actionButton}>
-                    <Icon name="share-social-outline" size={20} color={colors.textSecondary} />
+                {/* Repost */}
+                <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7}>
+                    <Icon name="repeat-outline" size={20} color="#9CA3AF" />
+                    <Text style={styles.actionCount}>{formatCount(repostCount)}</Text>
                 </TouchableOpacity>
 
                 <View style={{ flex: 1 }} />
 
-                <TouchableOpacity style={styles.actionButton} onPress={handleSave}>
+                {/* Bookmark */}
+                <TouchableOpacity style={styles.actionIconBtn} onPress={handleSave} activeOpacity={0.7}>
                     <Icon
                         name={isSaved ? 'bookmark' : 'bookmark-outline'}
                         size={20}
-                        color={isSaved ? '#FBBF24' : colors.textSecondary}
+                        color={isSaved ? '#3B82F6' : '#9CA3AF'}
                     />
+                </TouchableOpacity>
+
+                {/* Share / Send */}
+                <TouchableOpacity style={styles.actionIconBtn} activeOpacity={0.7}>
+                    <Icon name="paper-plane-outline" size={20} color="#9CA3AF" />
                 </TouchableOpacity>
             </View>
         </View>
@@ -261,68 +266,130 @@ export default function ScribeCard({ scribe, onSaveToggle }: ScribeCardProps) {
 }
 
 const styles = StyleSheet.create({
-    container: {
+    card: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 16,
+        marginHorizontal: 12,
         marginBottom: 12,
-        borderRadius: 12,
         padding: 16,
-        borderWidth: 1,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+        elevation: 2,
     },
     header: {
         flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 12,
+        alignItems: 'flex-start',
+        marginBottom: 10,
+        gap: 10,
     },
-    userInfo: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-    },
+    avatarWrap: {},
     avatar: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
+        width: 44,
+        height: 44,
+        borderRadius: 10,
+    },
+    avatarFallback: {
+        backgroundColor: '#3B82F6',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    avatarLetter: {
+        color: '#fff',
+        fontSize: 18,
+        fontWeight: '700',
+    },
+    headerMid: {
+        flex: 1,
     },
     nameRow: {
         flexDirection: 'row',
         alignItems: 'center',
+        flexWrap: 'wrap',
         gap: 4,
     },
-    username: {
+    displayName: {
         fontSize: 15,
-        fontWeight: '600',
+        fontWeight: '700',
+        color: '#111827',
+    },
+    followPill: {
+        paddingHorizontal: 14,
+        paddingVertical: 5,
+        borderRadius: 20,
+        borderWidth: 1.5,
+        borderColor: '#3B82F6',
+        marginLeft: 2,
+        marginRight: 6,
+    },
+    followPillActive: {
+        backgroundColor: '#3B82F6',
+        borderColor: '#3B82F6',
+    },
+    followPillText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#3B82F6',
+    },
+    followPillTextActive: {
+        color: '#FFFFFF',
+    },
+    dotSep: {
+        color: '#9CA3AF',
+        fontSize: 13,
     },
     timestamp: {
-        fontSize: 12,
+        color: '#9CA3AF',
+        fontSize: 13,
+    },
+    handle: {
+        color: '#9CA3AF',
+        fontSize: 13,
         marginTop: 2,
     },
+    moreBtn: {
+        paddingTop: 2,
+    },
     content: {
-        fontSize: 16,
+        fontSize: 15,
         lineHeight: 22,
+        color: '#111827',
         marginBottom: 12,
+    },
+    hashtag: {
+        color: '#3B82F6',
+        fontWeight: '500',
     },
     image: {
         width: '100%',
-        height: 300,
+        height: 200,
         borderRadius: 12,
         marginBottom: 12,
     },
     actions: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 12,
-        paddingTop: 12,
-        marginTop: 4,
+        gap: 4,
+        paddingTop: 10,
         borderTopWidth: 1,
+        borderTopColor: '#F3F4F6',
     },
-    actionButton: {
+    actionBtn: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 4,
-        paddingHorizontal: 4,
+        gap: 5,
+        paddingVertical: 4,
+        paddingHorizontal: 6,
+        marginRight: 4,
     },
-    actionText: {
-        fontSize: 13,
+    actionCount: {
+        fontSize: 14,
+        color: '#9CA3AF',
         fontWeight: '600',
+    },
+    actionIconBtn: {
+        paddingVertical: 4,
+        paddingHorizontal: 6,
     },
 });

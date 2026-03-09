@@ -8,16 +8,29 @@ import {
     TouchableOpacity,
     Image,
     ScrollView,
+    TextInput,
+    Platform,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useAuthStore } from '@/stores/authStore';
 import { useThemeStore } from '@/stores/themeStore';
 import { useChatStore } from '@/stores/chatStore';
-import type { Chat } from '@/types';
+import api from '@/services/api';
+import websocketService from '@/services/websocket';
+import type { Chat, Notification, Story, User } from '@/types';
 import { formatDistanceToNow } from 'date-fns';
+import NotificationDropdown from '@/components/NotificationDropdown';
 
 type TabType = 'private' | 'public' | 'groups';
+
+interface UserWithStories {
+    user: User;
+    stories: Story[];
+    has_unviewed: boolean;
+    story_count: number;
+    is_own: boolean;
+}
 
 export default function HomeScreen() {
     const navigation = useNavigation();
@@ -26,16 +39,141 @@ export default function HomeScreen() {
     const { chats, loadChats, isLoading } = useChatStore();
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [activeTab, setActiveTab] = useState<TabType>('private');
+    const [showNotifications, setShowNotifications] = useState(false);
+    const [notifications, setNotifications] = useState<Notification[]>([]);
+    const [storiesData, setStoriesData] = useState<UserWithStories[]>([]);
 
     useEffect(() => {
         console.log('🏠 HomeScreen mounted, loading chats...');
         loadChats();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+        fetchNotifications();
+        fetchStories();
+
+        // Connect to WebSocket for real-time notifications
+        let cleanupNotify: (() => void) | undefined;
+        let cleanupSidebar: (() => void) | undefined;
+        if (user) {
+            cleanupNotify = websocketService.connectToNotifications((event) => {
+                console.log('🔔 Real-time notification received in HomeScreen:', event);
+                // Refresh notifications on any notification event
+                if (event.type && ['like', 'comment', 'follow', 'story_like', 'story_reply'].includes(event.type)) {
+                    fetchNotifications();
+                }
+            });
+
+            // Subscribe to sidebar websocket for chat list updates
+            // Debounce sidebar updates
+            let sidebarTimeout: NodeJS.Timeout | null = null;
+            let latestSidebarEvent: any = null;
+            const sidebarHandler = (event: any) => {
+                latestSidebarEvent = event;
+                if (sidebarTimeout) clearTimeout(sidebarTimeout);
+                sidebarTimeout = setTimeout(() => {
+                    const e = latestSidebarEvent;
+                    console.log('🟦 Debounced sidebar event applied:', e);
+                    if (e.type === 'sidebar_update' && e.chat_id) {
+                        const chats = useChatStore.getState().chats.map(chat => {
+                            if (chat.id === Number(e.chat_id)) {
+                                return {
+                                    ...chat,
+                                    unread_count: typeof e.unread_count === 'number' ? e.unread_count : chat.unread_count,
+                                    last_message: e.last_message ? e.last_message : chat.last_message,
+                                };
+                            }
+                            return chat;
+                        });
+                        useChatStore.setState({ chats });
+                    } else if (e.type === 'new_chat' && e.chat && e.chat.id) {
+                        const chats = useChatStore.getState().chats;
+                        const chatIndex = chats.findIndex(chat => chat.id === e.chat.id);
+                        let updatedChats;
+                        if (chatIndex !== -1) {
+                            updatedChats = chats.map(chat =>
+                                chat.id === e.chat.id ? {
+                                    ...chat,
+                                    unread_count: e.chat.unread_count,
+                                    last_message: e.chat.last_message ? { content: e.chat.last_message, timestamp: new Date().toISOString() } : chat.last_message,
+                                    participants: e.chat.other_user ? [e.chat.other_user] : chat.participants,
+                                } : chat
+                            );
+                        } else {
+                            updatedChats = [...chats, {
+                                id: e.chat.id,
+                                chat_type: e.chat.type,
+                                name: e.chat.other_user?.full_name || 'Unknown',
+                                group_avatar: e.chat.other_user?.avatar_url || '',
+                                participants: e.chat.other_user ? [e.chat.other_user] : [],
+                                last_message: e.chat.last_message ? { content: e.chat.last_message, timestamp: new Date().toISOString() } : undefined,
+                                unread_count: e.chat.unread_count,
+                                is_public: false,
+                                created_at: new Date().toISOString(),
+                                updated_at: new Date().toISOString(),
+                            }];
+                        }
+                        useChatStore.setState({ chats: updatedChats });
+                    }
+                }, 120);
+            };
+            cleanupSidebar = websocketService.connectToSidebar(sidebarHandler);
+        }
+        return () => {
+            if (cleanupNotify) cleanupNotify();
+            if (cleanupSidebar) cleanupSidebar();
+        };
+    }, [user]);
+
+    const fetchNotifications = async () => {
+        try {
+            const response = await api.getNotifications();
+            if (response.success && response.data) {
+                setNotifications(response.data);
+            }
+        } catch (error) {
+            console.error('Error fetching notifications:', error);
+        }
+    };
+
+    const fetchStories = async () => {
+        try {
+            const response = await api.getFollowingStories();
+            console.log('📖 Stories response:', response);
+            if (response.success && (response as any).users_with_stories) {
+                setStoriesData((response as any).users_with_stories);
+            }
+        } catch (error) {
+            console.error('Error fetching stories:', error);
+        }
+    };
+
+    const handleMarkAllRead = async () => {
+        try {
+            // In a real app, you'd call an API here
+            // For now, update local state
+            const updated = notifications.map(n => ({ ...n, is_read: true }));
+            setNotifications(updated);
+            // Optional: call api.markAllNotificationsRead() if it exists
+        } catch (error) {
+            console.error('Error marking all read:', error);
+        }
+    };
+
+    const handleNotificationPress = (notification: Notification) => {
+        // Mark as read
+        const updated = notifications.map(n =>
+            n.id === notification.id ? { ...n, is_read: true } : n
+        );
+        setNotifications(updated);
+        api.markNotificationRead(notification.id);
+
+        // Navigate or handle action based on type
+        setShowNotifications(false);
+    };
+
+    const unreadNotificationsCount = notifications.filter(n => !n.is_read).length;
 
     const handleRefresh = () => {
         setIsRefreshing(true);
-        loadChats().finally(() => setIsRefreshing(false));
+        Promise.all([loadChats(), fetchStories()]).finally(() => setIsRefreshing(false));
     };
 
     const handleChatPress = (chat: Chat) => {
@@ -43,6 +181,10 @@ export default function HomeScreen() {
     };
 
     const formatTimestamp = (timestamp: string) => {
+        // Defensive: check for valid timestamp
+        if (!timestamp || isNaN(Date.parse(timestamp))) {
+            return 'now';
+        }
         const distance = formatDistanceToNow(new Date(timestamp), { addSuffix: false });
         // Convert to short form: "2 minutes" -> "2m"
         return distance
@@ -64,24 +206,58 @@ export default function HomeScreen() {
 
     console.log(`💬 Total chats: ${chats.length}, Filtered (${activeTab}): ${filteredChats.length}`);
 
-    const renderStoryItem = (item: { id: string; username: string; avatar: string; hasStory?: boolean; isYourStory?: boolean }) => (
-        <TouchableOpacity style={styles.storyItem} key={item.id}>
-            <View style={[styles.storyRing, !item.hasStory && { borderColor: colors.border }]}>
-                <Image
-                    source={{ uri: item.avatar && item.avatar.trim() !== '' ? item.avatar : 'https://via.placeholder.com/60' }}
-                    style={styles.storyAvatar}
-                />
-                {item.isYourStory && (
-                    <View style={[styles.addStory, { backgroundColor: colors.primary, borderColor: colors.surface }]}>
-                        <Icon name="add" size={14} color="#FFFFFF" />
-                    </View>
-                )}
-            </View>
-            <Text style={[styles.storyName, { color: colors.text }]} numberOfLines={1}>
-                {item.username}
-            </Text>
-        </TouchableOpacity>
-    );
+    const handleStoryPress = (userStories: UserWithStories) => {
+        if (userStories.is_own && userStories.stories.length === 0) {
+            // Navigate to create story
+            navigation.navigate('CreateStory' as never);
+        } else {
+            // Navigate to story viewer
+            navigation.navigate('StoryView' as never, { userId: userStories.user.id } as never);
+        }
+    };
+
+    const renderStoryItem = (item: UserWithStories, index: number) => {
+        const avatarUrl = item.user.profile_picture_url || item.user.profile_picture || '';
+        const hasValidAvatar = avatarUrl && avatarUrl.trim() !== '' && avatarUrl.startsWith('http');
+        const displayName = item.is_own ? 'Your story' : (item.user.full_name || item.user.username);
+        const hasUnviewed = item.has_unviewed && !item.is_own;
+
+        return (
+            <TouchableOpacity
+                style={styles.storyItem}
+                key={`story-${item.user.id}-${index}`}
+                onPress={() => handleStoryPress(item)}
+            >
+                <View style={[
+                    styles.storyRing,
+                    hasUnviewed && { borderColor: colors.primary, borderWidth: 3 },
+                    !hasUnviewed && { borderColor: colors.border },
+                    item.is_own && item.stories.length === 0 && { borderColor: colors.primary, borderWidth: 2 }
+                ]}>
+                    {hasValidAvatar ? (
+                        <Image
+                            source={{ uri: avatarUrl }}
+                            style={styles.storyAvatar}
+                        />
+                    ) : (
+                        <View style={[styles.storyAvatar, { backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' }]}>
+                            <Text style={{ color: '#FFFFFF', fontSize: 20, fontWeight: 'bold' }}>
+                                {item.user.username?.[0]?.toUpperCase() || '?'}
+                            </Text>
+                        </View>
+                    )}
+                    {item.is_own && item.stories.length === 0 && (
+                        <View style={[styles.addStory, { backgroundColor: colors.primary, borderColor: colors.surface }]}>
+                            <Icon name="add" size={14} color="#FFFFFF" />
+                        </View>
+                    )}
+                </View>
+                <Text style={[styles.storyName, { color: colors.text }]} numberOfLines={1}>
+                    {displayName}
+                </Text>
+            </TouchableOpacity>
+        );
+    };
 
     const renderChatItem = ({ item }: { item: Chat }) => {
         const otherUser = item.chat_type === 'private'
@@ -98,6 +274,16 @@ export default function HomeScreen() {
 
         const isOnline = otherUser?.is_online || false;
 
+        // Defensive: ensure last_message.timestamp is valid
+        let safeTimestamp = item.last_message?.timestamp;
+        if (!safeTimestamp || isNaN(Date.parse(safeTimestamp))) {
+            safeTimestamp = new Date().toISOString();
+        }
+        // Defensive: show last_message content if available, else fallback to sidebar event string
+        let lastMessageContent = item.last_message?.content;
+        if (!lastMessageContent && typeof item.last_message === 'string') {
+            lastMessageContent = item.last_message;
+        }
         return (
             <TouchableOpacity
                 style={[styles.chatItem, { backgroundColor: colors.surface }]}
@@ -117,8 +303,8 @@ export default function HomeScreen() {
                             {chatName}
                         </Text>
                         {item.last_message && (
-                            <Text style={[styles.timestamp, { color: colors.textSecondary }]}>
-                                {formatTimestamp(item.last_message.timestamp)}
+                            <Text style={[styles.timestamp, { color: item.unread_count > 0 ? colors.primary : colors.textSecondary }]}>
+                                {formatTimestamp(safeTimestamp)}
                             </Text>
                         )}
                     </View>
@@ -127,7 +313,7 @@ export default function HomeScreen() {
                             style={[styles.lastMessage, { color: colors.textSecondary }]}
                             numberOfLines={1}
                         >
-                            {item.last_message?.content || 'No messages yet'}
+                            {lastMessageContent || 'No messages yet'}
                         </Text>
                         {item.unread_count > 0 && (
                             <View style={[styles.badge, { backgroundColor: colors.primary }]}>
@@ -140,67 +326,108 @@ export default function HomeScreen() {
         );
     };
 
+    const ListHeader = () => (
+        <View style={{ backgroundColor: colors.surface }}>
+            {/* Stories */}
+            {storiesData.length > 0 && (
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={[styles.storiesContainer, { backgroundColor: colors.surface }]}
+                    contentContainerStyle={styles.storiesContent}
+                >
+                    {storiesData.map((userStories, index) => renderStoryItem(userStories, index))}
+                </ScrollView>
+            )}
+
+            {/* Search */}
+            <View style={styles.searchContainer}>
+                <View style={[styles.searchInputWrapper, { backgroundColor: colors.background }]}>
+                    <Icon name="search-outline" size={20} color={colors.textSecondary} style={styles.searchIcon} />
+                    <TextInput
+                        style={[styles.searchInput, { color: colors.text }]}
+                        placeholder="Search chats..."
+                        placeholderTextColor={colors.textSecondary}
+                    />
+                </View>
+            </View>
+
+            {/* Tabs */}
+            <View style={[styles.tabsContainer, { backgroundColor: colors.surface }]}>
+                <View style={[styles.tabsInner, { borderColor: colors.border }]}>
+                    <TouchableOpacity
+                        style={[styles.tab, activeTab === 'private' && { backgroundColor: colors.primary }]}
+                        onPress={() => setActiveTab('private')}
+                    >
+                        <Text style={[styles.tabText, { color: activeTab === 'private' ? '#FFFFFF' : colors.textSecondary }]}>
+                            Private
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.tab, activeTab === 'public' && { backgroundColor: colors.primary }]}
+                        onPress={() => setActiveTab('public')}
+                    >
+                        <Text style={[styles.tabText, { color: activeTab === 'public' ? '#FFFFFF' : colors.textSecondary }]}>
+                            Public
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.tab, activeTab === 'groups' && { backgroundColor: colors.primary }]}
+                        onPress={() => setActiveTab('groups')}
+                    >
+                        <Text style={[styles.tabText, { color: activeTab === 'groups' ? '#FFFFFF' : colors.textSecondary }]}>
+                            Groups
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </View>
+    );
+
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
             {/* Header */}
             <View style={[styles.header, { backgroundColor: colors.surface }]}>
                 <Text style={[styles.headerTitle, { color: colors.text }]}>Odnix</Text>
                 <View style={styles.headerIcons}>
-                    <TouchableOpacity style={styles.iconButton}>
-                        <Icon name="search-outline" size={24} color={colors.text} />
+                    <TouchableOpacity
+                        style={styles.bellButton}
+                        onPress={() => navigation.navigate('Notifications' as never)}
+                    >
+                        <Icon name="notifications" size={26} color={colors.textSecondary} />
+                        {unreadNotificationsCount > 0 && (
+                            <View style={[styles.notificationBadge, { backgroundColor: '#ef4444', borderColor: colors.surface }]}>
+                                <Text style={styles.notificationBadgeText}>
+                                    {unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount}
+                                </Text>
+                            </View>
+                        )}
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.iconButton}>
-                        <Icon name="person-outline" size={24} color={colors.text} />
+                    <TouchableOpacity onPress={() => navigation.navigate('MyProfile' as never)}>
+                        <Image
+                            source={{ uri: user?.profile_picture_url || 'https://via.placeholder.com/40' }}
+                            style={styles.headerAvatar}
+                        />
                     </TouchableOpacity>
                 </View>
             </View>
 
-            {/* Stories */}
-            <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={[styles.storiesContainer, { backgroundColor: colors.surface }]}
-                contentContainerStyle={styles.storiesContent}
-            >
-                {renderStoryItem({ id: 'your-story', username: 'Your story', avatar: user?.profile_picture_url || '', hasStory: false, isYourStory: true })}
-            </ScrollView>
-
-            {/* Tabs */}
-            <View style={[styles.tabsContainer, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
-                <TouchableOpacity
-                    style={[styles.tab, activeTab === 'private' && { borderBottomColor: colors.primary }]}
-                    onPress={() => setActiveTab('private')}
-                >
-                    <Icon name="person-outline" size={20} color={activeTab === 'private' ? colors.primary : colors.textSecondary} />
-                    <Text style={[styles.tabText, { color: colors.textSecondary }, activeTab === 'private' && { color: colors.primary }]}>
-                        Private
-                    </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={[styles.tab, activeTab === 'public' && { borderBottomColor: colors.primary }]}
-                    onPress={() => setActiveTab('public')}
-                >
-                    <Icon name="earth-outline" size={20} color={activeTab === 'public' ? colors.primary : colors.textSecondary} />
-                    <Text style={[styles.tabText, { color: colors.textSecondary }, activeTab === 'public' && { color: colors.primary }]}>
-                        Public
-                    </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={[styles.tab, activeTab === 'groups' && { borderBottomColor: colors.primary }]}
-                    onPress={() => setActiveTab('groups')}
-                >
-                    <Icon name="people-outline" size={20} color={activeTab === 'groups' ? colors.primary : colors.textSecondary} />
-                    <Text style={[styles.tabText, { color: colors.textSecondary }, activeTab === 'groups' && { color: colors.primary }]}>
-                        Groups
-                    </Text>
-                </TouchableOpacity>
-            </View>
+            {/* Notification Dropdown */}
+            {showNotifications && (
+                <NotificationDropdown
+                    notifications={notifications}
+                    onClose={() => setShowNotifications(false)}
+                    onMarkAllRead={handleMarkAllRead}
+                    onNotificationPress={handleNotificationPress}
+                />
+            )}
 
             {/* Chat List */}
             <FlatList
                 data={filteredChats}
                 keyExtractor={(item) => item.id.toString()}
                 renderItem={renderChatItem}
+                ListHeaderComponent={ListHeader}
                 refreshControl={
                     <RefreshControl
                         refreshing={isRefreshing}
@@ -209,10 +436,12 @@ export default function HomeScreen() {
                     />
                 }
                 contentContainerStyle={styles.listContent}
-                ItemSeparatorComponent={() => (
-                    <View style={[styles.separator, { backgroundColor: colors.border }]} />
-                )}
+                ItemSeparatorComponent={() => null}
             />
+
+            <TouchableOpacity style={[styles.fab, { backgroundColor: colors.primary }]}>
+                <Icon name="chatbox-ellipses" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
         </View>
     );
 }
@@ -226,108 +455,149 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingHorizontal: 16,
-        paddingVertical: 16,
-        paddingTop: 48,
+        paddingVertical: 12,
+        paddingTop: Platform.OS === 'ios' ? 48 : 20,
     },
     headerTitle: {
-        fontSize: 28,
-        fontWeight: 'bold',
+        fontSize: 26,
+        fontWeight: '900',
     },
     headerIcons: {
         flexDirection: 'row',
-        gap: 12,
+        gap: 16,
+        alignItems: 'center',
     },
-    iconButton: {
-        padding: 4,
+    bellButton: {
+        position: 'relative',
+    },
+    notificationBadge: {
+        position: 'absolute',
+        top: -4,
+        right: -4,
+        backgroundColor: '#ef4444',
+        borderRadius: 10,
+        width: 18,
+        height: 18,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#FFFFFF',
+    },
+    notificationBadgeText: {
+        color: '#FFFFFF',
+        fontSize: 10,
+        fontWeight: 'bold',
+    },
+    headerAvatar: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+    },
+    searchContainer: {
+        paddingHorizontal: 16,
+        marginBottom: 12,
+    },
+    searchInputWrapper: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 12,
+        height: 44,
+        borderRadius: 12,
+    },
+    searchIcon: {
+        marginRight: 8,
+    },
+    searchInput: {
+        flex: 1,
+        fontSize: 15,
     },
     storiesContainer: {
         borderBottomWidth: 0,
-        maxHeight: 110,
+        maxHeight: 120,
     },
     storiesContent: {
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        paddingBottom: 8,
-        gap: 12,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        gap: 16,
     },
     storyItem: {
         alignItems: 'center',
-        marginRight: 8,
         marginBottom: 0,
     },
     storyRing: {
         width: 68,
         height: 68,
-        borderRadius: 34,
+        borderRadius: 18,
         borderWidth: 2,
         justifyContent: 'center',
         alignItems: 'center',
-        marginBottom: 4,
+        marginBottom: 8,
     },
     storyAvatar: {
         width: 60,
         height: 60,
-        borderRadius: 30,
+        borderRadius: 16,
     },
     addStory: {
         position: 'absolute',
-        bottom: 0,
-        right: 0,
-        width: 20,
-        height: 20,
-        borderRadius: 10,
+        bottom: -4,
+        right: -4,
+        width: 22,
+        height: 22,
+        borderRadius: 11,
         justifyContent: 'center',
         alignItems: 'center',
         borderWidth: 2,
     },
     storyName: {
-        fontSize: 11,
+        fontSize: 12,
         maxWidth: 70,
         textAlign: 'center',
-        marginTop: 0,
-        lineHeight: 14,
+        fontWeight: '500',
     },
     tabsContainer: {
-        flexDirection: 'row',
         paddingHorizontal: 16,
-        paddingVertical: 6,
-        borderBottomWidth: 1,
+        paddingBottom: 12,
+    },
+    tabsInner: {
+        flexDirection: 'row',
+        borderWidth: 1,
+        borderRadius: 24,
+        padding: 4,
     },
     tab: {
         flex: 1,
-        flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        paddingVertical: 6,
-        gap: 6,
-        borderBottomWidth: 2,
-        borderBottomColor: 'transparent',
+        paddingVertical: 10,
+        borderRadius: 20,
     },
     tabText: {
-        fontSize: 15,
-        fontWeight: '500',
+        fontSize: 14,
+        fontWeight: '600',
     },
     listContent: {
         paddingVertical: 0,
+        paddingBottom: 80,
     },
     chatItem: {
         flexDirection: 'row',
         paddingHorizontal: 16,
-        paddingVertical: 12,
+        paddingVertical: 14,
     },
     avatarContainer: {
         position: 'relative',
-        marginRight: 12,
+        marginRight: 14,
     },
     avatar: {
         width: 56,
         height: 56,
-        borderRadius: 28,
+        borderRadius: 16,
     },
     onlineIndicator: {
         position: 'absolute',
-        bottom: 2,
-        right: 2,
+        bottom: -2,
+        right: -2,
         width: 14,
         height: 14,
         borderRadius: 7,
@@ -346,11 +616,12 @@ const styles = StyleSheet.create({
     },
     chatName: {
         fontSize: 16,
-        fontWeight: '600',
+        fontWeight: 'bold',
         flex: 1,
     },
     timestamp: {
         fontSize: 12,
+        fontWeight: '600',
         marginLeft: 8,
     },
     chatFooter: {
@@ -362,9 +633,9 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     badge: {
-        minWidth: 20,
-        height: 20,
-        borderRadius: 10,
+        minWidth: 22,
+        height: 22,
+        borderRadius: 11,
         justifyContent: 'center',
         alignItems: 'center',
         paddingHorizontal: 6,
@@ -375,8 +646,19 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: '600',
     },
-    separator: {
-        height: 1,
-        marginLeft: 84,
+    fab: {
+        position: 'absolute',
+        bottom: 24,
+        right: 24,
+        width: 56,
+        height: 56,
+        borderRadius: 16,
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        elevation: 6,
     },
 });

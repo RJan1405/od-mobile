@@ -183,6 +183,19 @@ class ApiService {
         }
     }
 
+    async updateProfile(formData: FormData): Promise<ApiResponse<User>> {
+        try {
+            const response = await this.api.post('/api/profile/', formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                },
+            });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
     async getUserProfile(username: string): Promise<ApiResponse<User>> {
         try {
             const response = await this.api.get(`/api/profile/${username}/`);
@@ -229,6 +242,36 @@ class ApiService {
     async editMessage(messageId: number, content: string): Promise<ApiResponse> {
         try {
             const response = await this.api.post(`/api/edit-message/${messageId}/`, { content });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async markMessagesRead(chatId: number, messageIds?: number[]): Promise<ApiResponse<{ marked_count: number; unread_count: number }>> {
+        try {
+            const response = await this.api.post('/api/messages/mark-read/', {
+                chat_id: chatId,
+                message_ids: messageIds,
+            });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async markChatRead(chatId: number): Promise<ApiResponse<{ marked_count: number; unread_count: number }>> {
+        try {
+            const response = await this.api.post(`/api/chat/${chatId}/mark-read/`);
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async getUnreadCounts(): Promise<ApiResponse<{ counts: Record<string, number>; total_unread: number }>> {
+        try {
+            const response = await this.api.get('/api/unread-counts/');
             return response.data;
         } catch (error) {
             return this.handleError(error);
@@ -505,8 +548,68 @@ class ApiService {
     // ==================== NOTIFICATIONS ====================
     async getNotifications(): Promise<ApiResponse<Notification[]>> {
         try {
-            const response = await this.api.get('/api/notifications/');
-            return response.data;
+            const response = await this.api.get('/api/activity/');
+            const activities = response.data?.activity_items || [];
+
+            // Transform backend activity format to frontend notification format
+            const notifications: Notification[] = activities.map((item: any, index: number) => {
+                let notificationType: Notification['notification_type'] = 'like';
+                let message = '';
+
+                switch (item.type) {
+                    case 'like':
+                        notificationType = 'like';
+                        message = 'liked your post';
+                        break;
+                    case 'comment':
+                        notificationType = 'comment';
+                        message = `commented: "${item.comment_content || ''}"`;
+                        break;
+                    case 'follow':
+                        notificationType = 'follow';
+                        message = 'started following you';
+                        break;
+                    case 'story_like':
+                        notificationType = 'like';
+                        message = 'liked your story';
+                        break;
+                    case 'story_reply':
+                        notificationType = 'story_reply';
+                        message = `replied to your story: "${item.content || ''}"`;
+                        break;
+                    default:
+                        message = item.type;
+                }
+
+                return {
+                    id: index + 1,
+                    user: item.user?.id || 0,
+                    sender: item.user ? {
+                        id: item.user.id,
+                        username: item.user.username,
+                        full_name: item.user.full_name || item.user.username,
+                        profile_picture_url: item.user.profile_picture_url || '',
+                        bio: '',
+                        email: '',
+                        followers_count: 0,
+                        following_count: 0,
+                        is_private: false,
+                        created_at: new Date().toISOString(),
+                    } : undefined,
+                    notification_type: notificationType,
+                    title: item.user?.username || 'Someone',
+                    message,
+                    data: {
+                        scribe_id: item.scribe?.id,
+                        story_id: item.story?.id,
+                        omzo_id: item.omzo?.id,
+                    },
+                    is_read: item.is_read || false,
+                    created_at: item.timestamp || new Date().toISOString(),
+                };
+            });
+
+            return { success: true, data: notifications };
         } catch (error) {
             return this.handleError(error);
         }

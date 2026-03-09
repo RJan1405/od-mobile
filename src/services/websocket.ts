@@ -2,6 +2,7 @@ import { API_CONFIG } from '@/config';
 import type { Message } from '@/types';
 
 type MessageCallback = (message: Message) => void;
+type ReadReceiptCallback = (data: { message_id: number; read_by: number; read_at: string }) => void;
 type EventCallback = (data: any) => void;
 
 class WebSocketService {
@@ -11,6 +12,7 @@ class WebSocketService {
     private callSocket: WebSocket | null = null;
 
     private messageCallbacks: Map<number, MessageCallback[]> = new Map();
+    private readReceiptCallbacks: Map<number, ReadReceiptCallback[]> = new Map();
     private notifyCallbacks: EventCallback[] = [];
     private sidebarCallbacks: EventCallback[] = [];
     private callCallbacks: EventCallback[] = [];
@@ -49,16 +51,22 @@ class WebSocketService {
                 const data = JSON.parse(event.data);
                 console.log('📨 WebSocket message received:', data);
                 const callbacks = this.messageCallbacks.get(chatId) || [];
+                const readCallbacks = this.readReceiptCallbacks.get(chatId) || [];
 
                 if (data.type === 'message.new') {
                     console.log('✉️ New message:', data.message);
                     callbacks.forEach(cb => cb(data.message));
                 } else if (data.type === 'typing.update') {
-                    // Handle typing indicator properly, don't pass as a message
-                    console.log('Got typing update');
+                    // Handle typing indicator - could add separate callback if needed
+                    console.log('⌨️ Typing update:', data.users);
                 } else if (data.type === 'message.read') {
-                    // Handle read receipt properly, don't pass as a message
-                    console.log('Got message read');
+                    // Handle read receipt
+                    console.log('✓✓ Message read:', data);
+                    readCallbacks.forEach(cb => cb({
+                        message_id: data.message_id,
+                        read_by: data.read_by,
+                        read_at: data.read_at
+                    }));
                 }
             } catch (error) {
                 console.error('Error parsing message:', error);
@@ -111,6 +119,35 @@ class WebSocketService {
                 is_typing: isTyping,
             }));
         }
+    }
+
+    sendReadReceipt(chatId: number, messageId: number): void {
+        const socket = this.chatSockets.get(chatId);
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+                type: 'message.read',
+                message_id: messageId,
+            }));
+        }
+    }
+
+    onReadReceipt(chatId: number, callback: ReadReceiptCallback): () => void {
+        const callbacks = this.readReceiptCallbacks.get(chatId) || [];
+        callbacks.push(callback);
+        this.readReceiptCallbacks.set(chatId, callbacks);
+
+        return () => {
+            const cbs = this.readReceiptCallbacks.get(chatId) || [];
+            const index = cbs.indexOf(callback);
+            if (index > -1) {
+                cbs.splice(index, 1);
+            }
+            if (cbs.length === 0) {
+                this.readReceiptCallbacks.delete(chatId);
+            } else {
+                this.readReceiptCallbacks.set(chatId, cbs);
+            }
+        };
     }
 
     disconnectFromChat(chatId: number): void {

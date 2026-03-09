@@ -48,11 +48,11 @@ export default function SettingsScreen() {
                 barStyle={themeInfo.isDark ? 'light-content' : 'dark-content'}
                 backgroundColor={colors.background}
             />
-            
+
             {/* Header */}
             <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
-                <TouchableOpacity 
-                    onPress={() => navigation.goBack()} 
+                <TouchableOpacity
+                    onPress={() => navigation.goBack()}
                     style={styles.backButton}
                 >
                     <Icon name="arrow-back" size={24} color={colors.text} />
@@ -106,7 +106,7 @@ export default function SettingsScreen() {
                     <View style={[styles.menuList, { backgroundColor: colors.surface }]}>
                         <TouchableOpacity
                             style={[styles.menuItem, { borderBottomColor: colors.border }]}
-                            onPress={() => Alert.alert('Coming Soon', 'Edit Profile feature')}
+                            onPress={() => navigation.navigate('EditProfile' as never)}
                         >
                             <Icon name="person-outline" size={22} color={colors.text} />
                             <Text style={[styles.menuLabel, { color: colors.text }]}>Edit Profile</Text>

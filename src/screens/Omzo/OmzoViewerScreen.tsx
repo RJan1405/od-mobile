@@ -5,31 +5,24 @@ import {
     TouchableOpacity,
     StyleSheet,
     Dimensions,
-    Image,
+    StatusBar,
     Platform,
+    Image,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useRoute, useNavigation } from '@react-navigation/native';
 import Video from 'react-native-video';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
 import api from '@/services/api';
-import type { Omzo } from '@/types';
-import OmzoCommentsSheet from './OmzoCommentsSheet';
-import OmzoActionsSheet from './OmzoActionsSheet';
+import OmzoCommentsSheet from '@/components/OmzoCommentsSheet';
+import OmzoActionsSheet from '@/components/OmzoActionsSheet';
+import { transformOmzoData } from '@/utils/api-helpers';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // Global mute state shared across all Omzo videos
 let globalMuteState = false;
-
-interface OmzoCardProps {
-    omzo: Omzo;
-    isActive: boolean;
-    containerHeight?: number;
-    onSaveToggle?: (omzoId: number, isSaved: boolean) => void;
-    onLikeToggle?: (omzoId: number, isLiked: boolean, likeCount: number) => void;
-}
 
 // Format counts like TikTok/Instagram (1.2K, 1.2M)
 const formatCount = (count?: number | null): string => {
@@ -39,38 +32,59 @@ const formatCount = (count?: number | null): string => {
     return count.toString();
 };
 
-export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle, onLikeToggle }: OmzoCardProps) {
-    const { colors } = useThemeStore();
+export default function OmzoViewerScreen() {
+    const route = useRoute();
     const navigation = useNavigation();
+    const { colors } = useThemeStore();
     const { user: currentUser } = useAuthStore();
     const videoRef = useRef<any>(null);
-    const [isLiked, setIsLiked] = useState(omzo.is_liked || false);
-    const [likeCount, setLikeCount] = useState(omzo.like_count);
-    const [commentCount, setCommentCount] = useState(omzo.comment_count);
-    const [isSaved, setIsSaved] = useState(omzo.is_saved || false);
+
+    // Get omzo from route params and transform to ensure consistent format
+    const rawOmzo = (route.params as any)?.omzo;
+    const transformedOmzo = rawOmzo ? transformOmzoData(rawOmzo) : null;
+
+    // State
+    const [omzo, setOmzo] = useState(transformedOmzo);
+    const [isLiked, setIsLiked] = useState(transformedOmzo?.is_liked || false);
+    const [likeCount, setLikeCount] = useState(transformedOmzo?.like_count || 0);
+    const [commentCount, setCommentCount] = useState(transformedOmzo?.comment_count || 0);
+    const [isSaved, setIsSaved] = useState(transformedOmzo?.is_saved || false);
     const [shareCount] = useState(45); // Placeholder for share count
     const [isFollowing, setIsFollowing] = useState(false);
-    const [paused, setPaused] = useState(!isActive);
+    const [paused, setPaused] = useState(false);
     const [isMuted, setIsMuted] = useState(globalMuteState);
     const [showComments, setShowComments] = useState(false);
     const [showActions, setShowActions] = useState(false);
 
-    // Sync state with prop changes (for cross-screen updates)
+    // Sync state with omzo changes
     useEffect(() => {
-        setIsLiked(omzo.is_liked || false);
-        setLikeCount(omzo.like_count);
-        setIsSaved(omzo.is_saved || false);
-        setCommentCount(omzo.comment_count);
-    }, [omzo.is_liked, omzo.like_count, omzo.is_saved, omzo.comment_count]);
+        if (omzo) {
+            setIsLiked(omzo.is_liked || false);
+            setLikeCount(omzo.like_count || 0);
+            setIsSaved(omzo.is_saved || false);
+            setCommentCount(omzo.comment_count || 0);
+        }
+    }, [omzo]);
 
+    // Track view when component mounts
     useEffect(() => {
-        setPaused(!isActive);
-
-        if (isActive) {
-            // Track view
+        if (omzo?.id) {
             api.trackOmzoView(omzo.id);
         }
-    }, [isActive, omzo.id]);
+    }, [omzo?.id]);
+
+    // Refresh omzo state when screen comes into focus
+    useFocusEffect(
+        React.useCallback(() => {
+            // Re-sync state from omzo object
+            if (omzo) {
+                setIsLiked(omzo.is_liked || false);
+                setLikeCount(omzo.like_count || 0);
+                setIsSaved(omzo.is_saved || false);
+                setCommentCount(omzo.comment_count || 0);
+            }
+        }, [omzo])
+    );
 
     const handleLike = async () => {
         const prevLiked = isLiked;
@@ -78,7 +92,7 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
 
         // Optimistic update
         setIsLiked(!isLiked);
-        setLikeCount(prev => isLiked ? prev - 1 : prev + 1);
+        setLikeCount((prev: number) => isLiked ? prev - 1 : prev + 1);
 
         try {
             const response = await api.toggleOmzoLike(omzo.id);
@@ -87,23 +101,19 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
                 const newLikeCount = (response as any).like_count;
                 setIsLiked(newIsLiked);
                 setLikeCount(newLikeCount);
-                // Notify parent to update its state
-                onLikeToggle?.(omzo.id, newIsLiked, newLikeCount);
             } else {
-                // Rollback
                 setIsLiked(prevLiked);
                 setLikeCount(prevCount);
             }
         } catch (error) {
             console.error('Error toggling like:', error);
-            // Rollback
             setIsLiked(prevLiked);
             setLikeCount(prevCount);
         }
     };
 
     const handleFollow = async () => {
-        if (!omzo.user?.username) return;
+        if (!omzo?.user?.username) return;
 
         const prevFollowing = isFollowing;
         setIsFollowing(!isFollowing);
@@ -128,7 +138,7 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
     const toggleMute = () => {
         const newMuteState = !isMuted;
         setIsMuted(newMuteState);
-        globalMuteState = newMuteState; // Save preference globally
+        globalMuteState = newMuteState;
     };
 
     const handleComments = () => {
@@ -149,7 +159,6 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
             const response = await api.toggleSaveOmzo(omzo.id);
             if (response.success) {
                 setIsSaved((response as any).is_saved);
-                onSaveToggle?.(omzo.id, (response as any).is_saved);
             } else {
                 setIsSaved(prevSaved);
             }
@@ -161,45 +170,57 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
 
     const handleShare = () => {
         setPaused(true);
-        // TODO: Implement share functionality
         console.log('Share omzo:', omzo.id);
-        if (isActive) {
-            setPaused(false);
-        }
+        setTimeout(() => setPaused(false), 100);
     };
 
     const handleProfilePress = () => {
-        if (!omzo.user?.username) return;
+        if (!omzo?.user?.username) return;
         (navigation as any).navigate('Profile', { username: omzo.user.username });
     };
 
     const handleCloseComments = () => {
         setShowComments(false);
-        if (isActive) {
-            setPaused(false);
-        }
+        setPaused(false);
     };
 
     const handleCloseActions = () => {
         setShowActions(false);
-        if (isActive) {
-            setPaused(false);
-        }
+        setPaused(false);
     };
+
+    const handleBack = () => {
+        navigation.goBack();
+    };
+
+    if (!omzo) {
+        return (
+            <View style={[styles.container, { backgroundColor: '#000' }]}>
+                <Text style={{ color: '#FFF' }}>No omzo data</Text>
+            </View>
+        );
+    }
 
     // Check for valid avatar URL
     const avatarUri = omzo.user?.profile_picture_url || omzo.user?.profile_picture || '';
     const hasValidAvatar = avatarUri && avatarUri !== 'null' && avatarUri.length > 0 && avatarUri.startsWith('http');
 
-    // Check for valid video URL
-    const videoUri = omzo.video_file || omzo.video_url || '';
-    const hasValidVideo = videoUri && videoUri !== 'null' && videoUri.length > 0 && videoUri.startsWith('http');
+    // Check for valid video URL - try all possible property names
+    const videoUri = omzo.video_file || omzo.video_url || (omzo as any).videoUrl || omzo.url || '';
+    const hasValidVideo = videoUri && videoUri !== 'null' && videoUri.trim().length > 0;
+
+    // Debug logging
+    console.log('OmzoViewerScreen - Video URI:', videoUri);
+    console.log('OmzoViewerScreen - Has valid video:', hasValidVideo);
+    console.log('OmzoViewerScreen - Omzo object:', JSON.stringify(omzo, null, 2));
 
     // Check if this is the current user's omzo
     const isOwnOmzo = currentUser?.username === omzo.user?.username;
 
     return (
-        <View style={[styles.container, containerHeight ? { height: containerHeight } : undefined]}>
+        <View style={styles.container}>
+            <StatusBar barStyle="light-content" backgroundColor="#000000" />
+
             {/* Video Background */}
             {hasValidVideo ? (
                 <Video
@@ -232,8 +253,11 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
                 onPress={togglePlayPause}
             />
 
-            {/* Top Controls - Title and Options */}
+            {/* Top Controls - Back Button and Options */}
             <View style={styles.topBar}>
+                <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+                    <Icon name="chevron-back" size={28} color="#FFFFFF" />
+                </TouchableOpacity>
                 <Text style={styles.topTitle}>Omzo</Text>
                 <TouchableOpacity style={styles.menuCircle} onPress={handleMoreActions}>
                     <Icon name="ellipsis-vertical" size={20} color="#FFFFFF" />
@@ -360,7 +384,7 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
                 onClose={handleCloseComments}
                 omzoId={omzo.id}
                 initialCommentCount={commentCount}
-                onCommentAdded={() => setCommentCount(prev => prev + 1)}
+                onCommentAdded={() => setCommentCount((prev: number) => prev + 1)}
             />
 
             {/* Actions Sheet */}
@@ -411,6 +435,14 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         zIndex: 10,
     },
+    backButton: {
+        width: 40,
+        height: 40,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.4)',
+        borderRadius: 20,
+    },
     topTitle: {
         color: '#FFFFFF',
         fontSize: 24,
@@ -419,6 +451,10 @@ const styles = StyleSheet.create({
         textShadowColor: 'rgba(0, 0, 0, 0.75)',
         textShadowOffset: { width: 0, height: 1 },
         textShadowRadius: 4,
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        textAlign: 'center',
     },
     menuCircle: {
         width: 36,
@@ -463,7 +499,7 @@ const styles = StyleSheet.create({
         bottom: 0,
         left: 0,
         right: 0,
-        height: 2,
+        height: 250,
         backgroundColor: 'rgba(0, 0, 0, 0.3)',
         zIndex: 2,
     },
@@ -545,7 +581,6 @@ const styles = StyleSheet.create({
         marginTop: 4,
     },
 
-    // Right Actions
     actionsColumn: {
         position: 'absolute',
         right: 12,

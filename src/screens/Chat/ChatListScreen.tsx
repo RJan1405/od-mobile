@@ -23,17 +23,28 @@ export default function ChatListScreen() {
     const navigation = useNavigation();
     const { colors } = useThemeStore();
     const { user } = useAuthStore();
-    const { chats, loadChats, isLoading } = useChatStore();
+    const { chats, loadChats, isLoading, updateUnreadCounts } = useChatStore();
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [activeTab, setActiveTab] = useState<TabType>('private');
 
     useEffect(() => {
         loadChats();
+        updateUnreadCounts(); // Load unread counts on mount
+    }, []);
+
+    // Refresh unread counts periodically
+    useEffect(() => {
+        const interval = setInterval(() => {
+            updateUnreadCounts();
+        }, 30000); // Every 30 seconds
+
+        return () => clearInterval(interval);
     }, []);
 
     const handleRefresh = async () => {
         setIsRefreshing(true);
         await loadChats();
+        await updateUnreadCounts();
         setIsRefreshing(false);
     };
 

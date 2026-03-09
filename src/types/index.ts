@@ -111,6 +111,7 @@ export interface Story {
     user: User;
     content?: string;
     media_file?: string;
+    media_url?: string;
     story_type: 'image' | 'video' | 'text';
     background_color: string;
     text_color: string;
@@ -139,8 +140,11 @@ export interface Omzo {
     views_count: number;
     views?: number;
     like_count: number;
+    likes?: number;
     dislike_count?: number;
+    dislikes?: number;
     comment_count: number;
+    comments?: number;
     is_liked?: boolean;
     is_disliked?: boolean;
     is_saved?: boolean;
@@ -175,6 +179,9 @@ export interface ApiResponse<T = any> {
     scribes?: Scribe[];  // For profile endpoints that return scribes
     omzos?: Omzo[];  // For profile endpoints that return omzos
     reposts?: Scribe[];  // For profile endpoints that return reposts
+    is_saved?: boolean;
+    is_liked?: boolean;
+    is_following?: boolean;
 }
 
 export interface PaginatedResponse<T> {

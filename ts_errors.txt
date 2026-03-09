@@ -1,0 +1,120 @@
+src/components/OmzoActionsSheet.tsx(11,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/Ionicons'. 'D:/VulnTech11/react-odnix/odnix-mobile/node_modules/react-native-vector-icons/Ionicons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/Ionicons';`
+src/components/OmzoCard.tsx(13,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/Ionicons'. 'D:/VulnTech11/react-odnix/odnix-mobile/node_modules/react-native-vector-icons/Ionicons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/Ionicons';`
+src/components/OmzoCommentsSheet.tsx(16,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/Ionicons'. 'D:/VulnTech11/react-odnix/odnix-mobile/node_modules/react-native-vector-icons/Ionicons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/Ionicons';`
+src/components/ScribeCard.tsx(10,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/Ionicons'. 'D:/VulnTech11/react-odnix/odnix-mobile/node_modules/react-native-vector-icons/Ionicons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/Ionicons';`
+src/components/ScribeCard.tsx(61,37): error TS2339: Property 'is_liked' does not exist on type 'ApiResponse<any>'.
+src/components/ScribeCard.tsx(62,39): error TS2339: Property 'like_count' does not exist on type 'ApiResponse<any>'.
+src/components/ScribeCard.tsx(102,40): error TS2339: Property 'is_disliked' does not exist on type 'ApiResponse<any>'.
+src/components/ScribeCard.tsx(127,37): error TS2339: Property 'is_saved' does not exist on type 'ApiResponse<any>'.
+src/components/ScribeCard.tsx(128,52): error TS2339: Property 'is_saved' does not exist on type 'ApiResponse<any>'.
+src/components/ScribeCard.tsx(140,29): error TS2345: Argument of type '[never, never]' is not assignable to parameter of type 'never'.
+src/components/ScribeCard.tsx(143,72): error TS2339: Property 'avatar' does not exist on type 'User'.
+src/components/ScribeCard.tsx(184,138): error TS2769: No overload matches this call.
+  Overload 1 of 4, '(value: string | number | Date): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number | Date'.
+      Type 'undefined' is not assignable to type 'string | number | Date'.
+  Overload 2 of 4, '(value: string | number): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number'.
+      Type 'undefined' is not assignable to type 'string | number'.
+src/components/StoryBar.tsx(11,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/Ionicons'. 'D:/VulnTech11/react-odnix/odnix-mobile/node_modules/react-native-vector-icons/Ionicons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/Ionicons';`
+src/components/StoryBar.tsx(43,29): error TS2345: Argument of type '[never, never]' is not assignable to parameter of type 'never'.
+src/components/ThemeSelector.tsx(10,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/Ionicons'. 'D:/VulnTech11/react-odnix/odnix-mobile/node_modules/react-native-vector-icons/Ionicons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/Ionicons';`
+src/components/ThemeSelector.tsx(40,37): error TS2339: Property 'handle' does not exist on type '{ modal: { margin: number; justifyContent: "flex-end"; }; container: { borderTopLeftRadius: number; borderTopRightRadius: number; maxHeight: "90%"; }; header: { alignItems: "center"; paddingVertical: number; paddingHorizontal: number; borderBottomWidth: number; position: "relative"; }; ... 21 more ...; footerText: {...'.
+src/components/ThemeSelector.tsx(55,51): error TS2339: Property 'scrollContent' does not exist on type '{ modal: { margin: number; justifyContent: "flex-end"; }; container: { borderTopLeftRadius: number; borderTopRightRadius: number; maxHeight: "90%"; }; header: { alignItems: "center"; paddingVertical: number; paddingHorizontal: number; borderBottomWidth: number; position: "relative"; }; ... 21 more ...; footerText: {...'.
+src/components/ThemeSelector.tsx(57,41): error TS2339: Property 'grid' does not exist on type '{ modal: { margin: number; justifyContent: "flex-end"; }; container: { borderTopLeftRadius: number; borderTopRightRadius: number; maxHeight: "90%"; }; header: { alignItems: "center"; paddingVertical: number; paddingHorizontal: number; borderBottomWidth: number; position: "relative"; }; ... 21 more ...; footerText: {...'.
+src/components/ThemeSelector.tsx(66,48): error TS2339: Property 'themeButton' does not exist on type '{ modal: { margin: number; justifyContent: "flex-end"; }; container: { borderTopLeftRadius: number; borderTopRightRadius: number; maxHeight: "90%"; }; header: { alignItems: "center"; paddingVertical: number; paddingHorizontal: number; borderBottomWidth: number; position: "relative"; }; ... 21 more ...; footerText: {...'.
+src/components/ThemeSelector.tsx(80,61): error TS2339: Property 'checkmark' does not exist on type '{ modal: { margin: number; justifyContent: "flex-end"; }; container: { borderTopLeftRadius: number; borderTopRightRadius: number; maxHeight: "90%"; }; header: { alignItems: "center"; paddingVertical: number; paddingHorizontal: number; borderBottomWidth: number; position: "relative"; }; ... 21 more ...; footerText: {...'.
+src/components/ThemeSelector.tsx(90,42): error TS2339: Property 'infoBox' does not exist on type '{ modal: { margin: number; justifyContent: "flex-end"; }; container: { borderTopLeftRadius: number; borderTopRightRadius: number; maxHeight: "90%"; }; header: { alignItems: "center"; paddingVertical: number; paddingHorizontal: number; borderBottomWidth: number; position: "relative"; }; ... 21 more ...; footerText: {...'.
+src/components/ThemeSelector.tsx(92,46): error TS2339: Property 'infoText' does not exist on type '{ modal: { margin: number; justifyContent: "flex-end"; }; container: { borderTopLeftRadius: number; borderTopRightRadius: number; maxHeight: "90%"; }; header: { alignItems: "center"; paddingVertical: number; paddingHorizontal: number; borderBottomWidth: number; position: "relative"; }; ... 21 more ...; footerText: {...'.
+src/navigation/RootNavigator.tsx(6,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/Ionicons'. 'D:/VulnTech11/react-odnix/odnix-mobile/node_modules/react-native-vector-icons/Ionicons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/Ionicons';`
+src/screens/Chat/ChatListScreen.tsx(13,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/Ionicons'. 'D:/VulnTech11/react-odnix/odnix-mobile/node_modules/react-native-vector-icons/Ionicons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/Ionicons';`
+src/screens/Chat/ChatListScreen.tsx(41,29): error TS2345: Argument of type '[never, never]' is not assignable to parameter of type 'never'.
+src/screens/Chat/ChatScreen.tsx(15,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/Ionicons'. 'D:/VulnTech11/react-odnix/odnix-mobile/node_modules/react-native-vector-icons/Ionicons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/Ionicons';`
+src/screens/Explore/ExploreScreen.tsx(19,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/Ionicons'. 'D:/VulnTech11/react-odnix/odnix-mobile/node_modules/react-native-vector-icons/Ionicons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/Ionicons';`
+src/screens/Explore/ExploreScreen.tsx(118,46): error TS2339: Property 'results' does not exist on type 'ApiResponse<PaginatedResponse<Scribe>>'.
+src/screens/Explore/ExploreScreen.tsx(119,56): error TS2339: Property 'results' does not exist on type 'ApiResponse<PaginatedResponse<Scribe>>'.
+src/screens/Explore/ExploreScreen.tsx(119,95): error TS2339: Property 'results' does not exist on type 'ApiResponse<PaginatedResponse<Scribe>>'.
+src/screens/Explore/ExploreScreen.tsx(121,37): error TS2339: Property 'has_more' does not exist on type 'ApiResponse<PaginatedResponse<Scribe>>'.
+src/screens/Explore/ExploreScreen.tsx(186,29): error TS2345: Argument of type '[never, never]' is not assignable to parameter of type 'never'.
+src/screens/Explore/ExploreScreen.tsx(221,40): error TS2339: Property 'is_liked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(222,44): error TS2339: Property 'like_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(223,43): error TS2339: Property 'is_disliked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(224,47): error TS2339: Property 'dislike_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(227,39): error TS2339: Property 'is_liked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(228,37): error TS2339: Property 'like_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(229,42): error TS2339: Property 'is_disliked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(230,40): error TS2339: Property 'dislike_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(271,43): error TS2339: Property 'is_disliked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(272,47): error TS2339: Property 'dislike_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(273,40): error TS2339: Property 'is_liked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(274,44): error TS2339: Property 'like_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(277,42): error TS2339: Property 'is_disliked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(278,40): error TS2339: Property 'dislike_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(279,39): error TS2339: Property 'is_liked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(280,37): error TS2339: Property 'like_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(306,40): error TS2339: Property 'is_saved' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(308,72): error TS2339: Property 'is_saved' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(368,40): error TS2339: Property 'is_liked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(369,44): error TS2339: Property 'like_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(370,43): error TS2339: Property 'is_disliked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(371,47): error TS2339: Property 'dislike_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(374,39): error TS2339: Property 'is_liked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(375,37): error TS2339: Property 'like_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(376,42): error TS2339: Property 'is_disliked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(377,40): error TS2339: Property 'dislike_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(418,43): error TS2339: Property 'is_disliked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(419,47): error TS2339: Property 'dislike_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(420,40): error TS2339: Property 'is_liked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(421,44): error TS2339: Property 'like_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(424,42): error TS2339: Property 'is_disliked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(425,40): error TS2339: Property 'dislike_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(426,39): error TS2339: Property 'is_liked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(427,37): error TS2339: Property 'like_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(453,40): error TS2339: Property 'is_saved' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(455,69): error TS2339: Property 'is_saved' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(509,39): error TS2339: Property 'is_liked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(510,37): error TS2339: Property 'like_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(511,42): error TS2339: Property 'is_disliked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(512,40): error TS2339: Property 'dislike_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(531,62): error TS2339: Property 'is_saved' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(554,39): error TS2339: Property 'is_liked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(555,37): error TS2339: Property 'like_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(556,42): error TS2339: Property 'is_disliked' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(557,40): error TS2339: Property 'dislike_count' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(576,60): error TS2339: Property 'is_saved' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(605,46): error TS2339: Property 'results' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(606,43): error TS2339: Property 'results' does not exist on type 'ApiResponse<any>'.
+src/screens/Explore/ExploreScreen.tsx(686,45): error TS2345: Argument of type '[never, never]' is not assignable to parameter of type 'never'.
+src/screens/Explore/ExploreScreen.tsx(775,17): error TS2740: Type '{ id: number; username: any; full_name: any; profile_picture_url: any; is_verified: any; }' is missing the following properties from type 'User': email, name, lastname, profile_picture, and 7 more.
+src/screens/Explore/ExploreScreen.tsx(1718,5): error TS1117: An object literal cannot have multiple properties with the same name.
+src/screens/Home/HomeScreen.tsx(14,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/Ionicons'. 'D:/VulnTech11/react-odnix/odnix-mobile/node_modules/react-native-vector-icons/Ionicons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/Ionicons';`
+src/screens/Home/HomeScreen.tsx(43,29): error TS2345: Argument of type '[never, never]' is not assignable to parameter of type 'never'.
+src/screens/Home/HomeScreen.tsx(255,21): error TS2304: Cannot find name 'Platform'.
+src/screens/Omzo/OmzoScreen.tsx(12,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/Ionicons'. 'D:/VulnTech11/react-odnix/odnix-mobile/node_modules/react-native-vector-icons/Ionicons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/Ionicons';`
+src/screens/Omzo/OmzoViewerScreen.tsx(14,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/Ionicons'. 'D:/VulnTech11/react-odnix/odnix-mobile/node_modules/react-native-vector-icons/Ionicons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/Ionicons';`
+src/screens/Omzo/OmzoViewerScreen.tsx(95,22): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/screens/Omzo/OmzoViewerScreen.tsx(395,55): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/screens/Profile/ProfileScreen.tsx(16,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/Ionicons'. 'D:/VulnTech11/react-odnix/odnix-mobile/node_modules/react-native-vector-icons/Ionicons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/Ionicons';`
+src/screens/Profile/ProfileScreen.tsx(412,70): error TS2339: Property 'likes' does not exist on type 'Omzo'.
+src/screens/Profile/ProfileScreen.tsx(413,73): error TS2339: Property 'dislikes' does not exist on type 'Omzo'.
+src/screens/Profile/ProfileScreen.tsx(414,73): error TS2339: Property 'comments' does not exist on type 'Omzo'.
+src/screens/Profile/ProfileScreen.tsx(471,45): error TS2740: Type '{ id: any; username: any; full_name: any; profile_picture_url: any; is_verified: any; }' is missing the following properties from type 'User': email, name, lastname, profile_picture, and 7 more.
+src/screens/Profile/ProfileScreen.tsx(501,96): error TS2339: Property 'is_saved' does not exist on type 'ApiResponse<any>'.
+src/screens/Settings/SettingsScreen.tsx(16,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/Ionicons'. 'D:/VulnTech11/react-odnix/odnix-mobile/node_modules/react-native-vector-icons/Ionicons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/Ionicons';`
+src/screens/Upload/UploadScreen.tsx(4,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/Ionicons'. 'D:/VulnTech11/react-odnix/odnix-mobile/node_modules/react-native-vector-icons/Ionicons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/Ionicons';`

@@ -8,7 +8,7 @@ import {
     ActivityIndicator,
     TouchableOpacity,
 } from 'react-native';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused, useFocusEffect } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '@/stores/themeStore';
 import api from '@/services/api';
@@ -26,6 +26,7 @@ export default function OmzoScreen() {
     const [hasMore, setHasMore] = useState(true);
     const [cursor, setCursor] = useState<string | null>(null);
     const [currentIndex, setCurrentIndex] = useState(0);
+    const [screenHeight, setScreenHeight] = useState(SCREEN_HEIGHT);
     const flatListRef = useRef<FlatList>(null);
     const hasLoadedRef = useRef(false);
 
@@ -35,6 +36,42 @@ export default function OmzoScreen() {
             loadOmzos();
         }
     }, []);
+
+    // Refresh omzos when screen comes into focus (for cross-screen sync)
+    useFocusEffect(
+        React.useCallback(() => {
+            // Refresh current omzos to get latest like/save states
+            if (omzos.length > 0) {
+                refreshOmzos();
+            }
+        }, [omzos.length])
+    );
+
+    const refreshOmzos = async () => {
+        if (omzos.length === 0) return;
+
+        try {
+            // Get fresh data for currently loaded omzos
+            const response = await api.getOmzoBatch(undefined);
+            if (response.success && (response as any).omzos) {
+                const freshOmzos = (response as any).omzos.map(transformOmzoData);
+                // Update existing omzos with fresh data
+                setOmzos(prev => {
+                    const updated = [...prev];
+                    freshOmzos.forEach((freshOmzo: OmzoType) => {
+                        const index = updated.findIndex(o => o.id === freshOmzo.id);
+                        if (index !== -1) {
+                            // Update while preserving position
+                            updated[index] = { ...updated[index], ...freshOmzo };
+                        }
+                    });
+                    return updated;
+                });
+            }
+        } catch (error) {
+            console.error('Error refreshing omzos:', error);
+        }
+    };
 
     const loadOmzos = async () => {
         if (isLoading || !hasMore) return;
@@ -82,18 +119,27 @@ export default function OmzoScreen() {
         ));
     };
 
+    const handleOmzoLikeToggle = (omzoId: number, isLiked: boolean, likeCount: number) => {
+        // Update the omzo in the list with new like state
+        setOmzos(prev => prev.map(omzo =>
+            omzo.id === omzoId ? { ...omzo, is_liked: isLiked, like_count: likeCount } : omzo
+        ));
+    };
+
     const renderItem = ({ item, index }: { item: OmzoType; index: number }) => (
         <OmzoCard
             omzo={item}
             isActive={index === currentIndex && isFocused}
+            containerHeight={screenHeight}
             onSaveToggle={handleOmzoSaveToggle}
+            onLikeToggle={handleOmzoLikeToggle}
         />
     );
 
     const renderFooter = () => {
         if (!isLoading || !hasMore) return null;
         return (
-            <View style={styles.footer}>
+            <View style={[styles.footer, { height: screenHeight }]}>
                 <ActivityIndicator color={colors.primary} size="large" />
             </View>
         );
@@ -102,7 +148,7 @@ export default function OmzoScreen() {
     const renderEmpty = () => {
         if (isLoading) {
             return (
-                <View style={styles.emptyContainer}>
+                <View style={[styles.emptyContainer, { height: screenHeight }]}>
                     <ActivityIndicator color={colors.primary} size="large" />
                     <Text style={[styles.emptyText, { color: colors.text }]}>Loading omzos...</Text>
                 </View>
@@ -110,7 +156,7 @@ export default function OmzoScreen() {
         }
 
         return (
-            <View style={styles.emptyContainer}>
+            <View style={[styles.emptyContainer, { height: screenHeight }]}>
                 <Icon name="film-outline" size={64} color="#666" />
                 <Text style={[styles.emptyTitle, { color: colors.text }]}>No Omzos Yet</Text>
                 <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
@@ -134,7 +180,15 @@ export default function OmzoScreen() {
     };
 
     return (
-        <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View
+            style={[styles.container, { backgroundColor: colors.background }]}
+            onLayout={(event) => {
+                const layoutHeight = event.nativeEvent.layout.height;
+                if (layoutHeight > 0 && layoutHeight !== screenHeight) {
+                    setScreenHeight(layoutHeight);
+                }
+            }}
+        >
             <FlatList
                 ref={flatListRef}
                 data={omzos}
@@ -143,7 +197,7 @@ export default function OmzoScreen() {
                 pagingEnabled
                 showsVerticalScrollIndicator={false}
                 decelerationRate="fast"
-                snapToInterval={SCREEN_HEIGHT}
+                snapToInterval={screenHeight}
                 snapToAlignment="start"
                 onViewableItemsChanged={onViewableItemsChanged}
                 viewabilityConfig={viewabilityConfig}

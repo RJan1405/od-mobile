@@ -9,6 +9,7 @@ interface ChatState {
     currentChat: Chat | null;
     messages: Map<number, Message[]>;
     isLoading: boolean;
+    unreadCounts: Map<number, number>;
 
     // Actions
     loadChats: () => Promise<void>;
@@ -19,6 +20,10 @@ interface ChatState {
     removeMessage: (chatId: number, messageId: number) => void;
     sendMessage: (chatId: number, content: string, mediaUri?: string) => Promise<void>;
     clearMessages: (chatId: number) => void;
+    markMessagesAsRead: (chatId: number, messageIds?: number[]) => Promise<void>;
+    markChatAsRead: (chatId: number) => Promise<void>;
+    updateUnreadCounts: () => Promise<void>;
+    updateChatUnreadCount: (chatId: number, count: number) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -26,6 +31,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     currentChat: null,
     messages: new Map(),
     isLoading: false,
+    unreadCounts: new Map(),
 
     loadChats: async () => {
         set({ isLoading: true });
@@ -294,5 +300,103 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const messages = get().messages;
         messages.delete(chatId);
         set({ messages: new Map(messages) });
+    },
+
+    markMessagesAsRead: async (chatId: number, messageIds?: number[]) => {
+        try {
+            const response = await api.markMessagesRead(chatId, messageIds);
+            if (response.success) {
+                const data = response as any;
+                // Update unread count for this chat
+                const unreadCounts = get().unreadCounts;
+                unreadCounts.set(chatId, data.unread_count || 0);
+                set({ unreadCounts: new Map(unreadCounts) });
+
+                // Update is_read status on messages locally
+                if (data.marked_message_ids && data.marked_message_ids.length > 0) {
+                    const messages = get().messages;
+                    const chatMessages = messages.get(chatId) || [];
+                    const updatedMessages = chatMessages.map(msg =>
+                        data.marked_message_ids.includes(msg.id) ? { ...msg, is_read: true } : msg
+                    );
+                    messages.set(chatId, updatedMessages);
+                    set({ messages: new Map(messages) });
+                }
+
+                // Update chat's unread_count in chat list
+                const chats = get().chats.map(chat =>
+                    chat.id === chatId ? { ...chat, unread_count: data.unread_count || 0 } : chat
+                );
+                set({ chats });
+            }
+        } catch (error) {
+            console.error('Error marking messages as read:', error);
+        }
+    },
+
+    markChatAsRead: async (chatId: number) => {
+        try {
+            const response = await api.markChatRead(chatId);
+            if (response.success) {
+                const data = response as any;
+                // Update unread count for this chat
+                const unreadCounts = get().unreadCounts;
+                unreadCounts.set(chatId, 0);
+                set({ unreadCounts: new Map(unreadCounts) });
+
+                // Mark all messages as read locally
+                const messages = get().messages;
+                const chatMessages = messages.get(chatId) || [];
+                const updatedMessages = chatMessages.map(msg => ({ ...msg, is_read: true }));
+                messages.set(chatId, updatedMessages);
+                set({ messages: new Map(messages) });
+
+                // Update chat's unread_count in chat list
+                const chats = get().chats.map(chat =>
+                    chat.id === chatId ? { ...chat, unread_count: 0 } : chat
+                );
+                set({ chats });
+            }
+        } catch (error) {
+            console.error('Error marking chat as read:', error);
+        }
+    },
+
+    updateUnreadCounts: async () => {
+        try {
+            const response = await api.getUnreadCounts();
+            if (response.success) {
+                const data = response as any;
+                const unreadCounts = new Map<number, number>();
+
+                // Convert string keys to numbers and populate map
+                Object.entries(data.counts || {}).forEach(([chatId, count]) => {
+                    unreadCounts.set(Number(chatId), count as number);
+                });
+
+                set({ unreadCounts });
+
+                // Also update the chats array with unread counts
+                const chats = get().chats.map(chat => ({
+                    ...chat,
+                    unread_count: unreadCounts.get(chat.id) || 0
+                }));
+                set({ chats });
+            }
+        } catch (error) {
+            console.error('Error updating unread counts:', error);
+        }
+    },
+
+    updateChatUnreadCount: (chatId: number, count: number) => {
+        const unreadCounts = get().unreadCounts;
+        unreadCounts.set(chatId, count);
+        set({ unreadCounts: new Map(unreadCounts) });
+
+        // Also update in the chat list
+        const chats = get().chats.map(chat =>
+            chat.id === chatId ? { ...chat, unread_count: count } : chat
+        );
+        set({ chats });
     },
 }));
