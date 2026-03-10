@@ -215,6 +215,15 @@ class ApiService {
         }
     }
 
+    async createChat(username: string): Promise<ApiResponse<{ chatId: number }>> {
+        try {
+            const response = await this.api.post('/api/create-chat/', { username });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
     async getChatMessages(chatId: number, page: number = 1): Promise<ApiResponse<PaginatedResponse<Message>>> {
         try {
             const response = await this.api.get(`/api/chat/${chatId}/messages/`, {
@@ -242,6 +251,15 @@ class ApiService {
     async editMessage(messageId: number, content: string): Promise<ApiResponse> {
         try {
             const response = await this.api.post(`/api/edit-message/${messageId}/`, { content });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async consumeOneTimeMessage(messageId: number): Promise<ApiResponse> {
+        try {
+            const response = await this.api.post(`/api/consume-message/${messageId}/`);
             return response.data;
         } catch (error) {
             return this.handleError(error);
@@ -371,7 +389,7 @@ class ApiService {
     }
 
     // ==================== OMZO (SHORT VIDEOS) ====================
-    async getOmzoBatch(cursor?: string): Promise<ApiResponse<{ omzos: Omzo[]; next_cursor?: string }>> {
+    async getOmzoBatch(cursor?: string): Promise<ApiResponse<{ data: Omzo[]; next_cursor?: string; has_more?: boolean; total_available?: number; batch_size?: number }>> {
         try {
             const response = await this.api.get('/api/omzo/batch/', {
                 params: cursor ? { cursor } : {},
@@ -643,6 +661,38 @@ class ApiService {
         }
     }
 
+    // ==================== P2P SIGNALING (WebRTC) ====================
+    async sendP2PSignal(chatId: number, targetUserId: string | number, signalData: any): Promise<ApiResponse> {
+        try {
+            const response = await this.api.post('/api/p2p/send-signal/', {
+                chat_id: chatId,
+                target_user_id: targetUserId,
+                signal_data: signalData,
+            });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async getP2PSignals(chatId: number): Promise<ApiResponse<any[]>> {
+        try {
+            const response = await this.api.get(`/api/p2p/${chatId}/signals/`);
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async clearP2PSignals(chatId: number): Promise<ApiResponse> {
+        try {
+            const response = await this.api.post('/api/p2p/clear-signals/', { chat_id: chatId });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
     // ==================== ERROR HANDLING ====================
     private handleError(error: any): ApiResponse {
         if (axios.isAxiosError(error)) {
@@ -655,6 +705,10 @@ class ApiService {
             success: false,
             error: 'An unexpected error occurred',
         };
+    }
+
+    buildFullUrl(url: string | null | undefined): string {
+        return convertToAbsoluteUrl(url);
     }
 }
 

@@ -179,12 +179,16 @@ function MainTabs() {
     );
 }
 
+import { createNavigationContainerRef } from '@react-navigation/native';
+
+export const navigationRef = createNavigationContainerRef();
+
 export function RootNavigator() {
     const { isAuthenticated } = useAuthStore();
     const { colors } = useThemeStore();
 
     return (
-        <NavigationContainer>
+        <NavigationContainer ref={navigationRef}>
             <Stack.Navigator
                 screenOptions={{
                     headerStyle: {

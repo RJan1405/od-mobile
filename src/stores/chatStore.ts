@@ -18,7 +18,8 @@ interface ChatState {
     addMessage: (chatId: number, message: Message) => void;
     updateMessage: (chatId: number, messageId: number, updates: Partial<Message>) => void;
     removeMessage: (chatId: number, messageId: number) => void;
-    sendMessage: (chatId: number, content: string, mediaUri?: string) => Promise<void>;
+    sendMessage: (chatId: number, content: string, mediaUri?: string, mediaParams?: { name: string, type: string }, oneTime?: boolean) => Promise<void>;
+    consumeMessage: (chatId: number, messageId: number) => Promise<any>;
     clearMessages: (chatId: number) => void;
     markMessagesAsRead: (chatId: number, messageIds?: number[]) => Promise<void>;
     markChatAsRead: (chatId: number) => Promise<void>;
@@ -206,6 +207,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
             const messages = get().messages;
             const chatMessages = messages.get(chatId) || [];
+
+            // Deduplicate: skip if a message with the same ID already exists
+            if (normalizedMessage.id && chatMessages.some(msg => msg.id === normalizedMessage.id)) {
+                return;
+            }
+
             messages.set(chatId, [...chatMessages, normalizedMessage]);
             set({ messages: new Map(messages) });
         } catch (error) {
@@ -231,17 +238,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set({ messages: new Map(messages) });
     },
 
-    sendMessage: async (chatId: number, content: string, mediaUri?: string) => {
+    sendMessage: async (chatId: number, content: string, mediaUri?: string, mediaParams?: { name: string, type: string }, oneTime: boolean = false) => {
         try {
-            console.log('📤 Sending message:', { chatId, content, mediaUri });
+            console.log('📤 Sending message:', { chatId, content, mediaUri, oneTime });
             const formData = new FormData();
             formData.append('chat_id', chatId.toString());
             formData.append('content', content);
+            if (oneTime) {
+                formData.append('one_time', 'true');
+            }
 
             if (mediaUri) {
-                const filename = mediaUri.split('/').pop() || 'media';
-                const match = /\.(\w+)$/.exec(filename);
-                const type = match ? `image/${match[1]}` : 'image';
+                const filename = mediaParams?.name || mediaUri.split('/').pop() || 'media';
+
+                let type = mediaParams?.type;
+                if (!type) {
+                    const match = /\.(\w+)$/.exec(filename);
+                    type = match ? `image/${match[1]}` : 'image';
+                }
 
                 formData.append('media', {
                     uri: mediaUri,
@@ -293,6 +307,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
         } catch (error) {
             console.error('❌ Error sending message:', error);
             throw error;
+        }
+    },
+
+    consumeMessage: async (chatId: number, messageId: number) => {
+        try {
+            console.log(`[ChatStore] Consuming OTV message: ${messageId}`);
+            const response = await api.consumeOneTimeMessage(messageId);
+
+            if (response.success) {
+                console.log(`[ChatStore] OTV content revealed:`, response);
+
+                // Update local state is done by the caller or by WebSocket event
+                // But we should notify the server via WS that we consumed it
+                websocket.sendConsumeReceipt(chatId, messageId);
+
+                return response; // Contains Revealed text/media
+            } else {
+                console.warn(`[ChatStore] Failed to consume OTV:`, response.error);
+                return response;
+            }
+        } catch (error) {
+            console.error(`[ChatStore] Error consuming message:`, error);
+            return { success: false, error: 'Internal error' };
         }
     },
 

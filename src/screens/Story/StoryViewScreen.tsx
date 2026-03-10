@@ -23,6 +23,7 @@ import Video from 'react-native-video';
 import { useThemeStore } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
 import api from '@/services/api';
+import { API_CONFIG } from '@/config';
 import type { Story, User } from '@/types';
 
 const { width, height } = Dimensions.get('window');
@@ -327,15 +328,29 @@ export default function StoryViewScreen() {
 
     const renderUserStories = ({ item: userGroup, index }: { item: any; index: number }) => {
         const isActive = index === currentUserIndex;
-        if (!isActive) return <View style={{ width, height }} />;
+        // Optimization: only render content for active and adjacent stories
+        const isNear = Math.abs(index - currentUserIndex) <= 1;
 
-        const currentStory = userGroup.stories[storyIndexByUser.current[index] || 0];
+        if (!isNear) {
+            return <View style={{ width, height, backgroundColor: '#000' }} />;
+        }
+
+        const currentStoryIdx = storyIndexByUser.current[index] || 0;
+        const currentStory = userGroup.stories[currentStoryIdx];
+
+        if (!currentStory) return <View style={{ width, height, backgroundColor: '#000' }} />;
+
         const storyUser = userGroup.user;
-        const mediaUri = currentStory.media_url || currentStory.media_file || '';
-        const hasValidMedia = mediaUri && mediaUri.trim() !== '' && mediaUri.startsWith('http');
+        let mediaUri = currentStory.media_url || currentStory.media_file || '';
 
+        // Defensive: ensure URL is absolute
+        if (mediaUri && !mediaUri.startsWith('http')) {
+            const baseUrl = API_CONFIG.BASE_URL;
+            mediaUri = `${baseUrl}${mediaUri.startsWith('/') ? '' : '/'}${mediaUri}`;
+        }
+
+        const hasValidMedia = mediaUri && mediaUri.trim() !== '' && mediaUri.startsWith('http');
         const avatarUrl = storyUser.profile_picture_url || storyUser.profile_picture || '';
-        const hasValidAvatar = avatarUrl && avatarUrl.trim() !== '' && avatarUrl.startsWith('http');
 
         return (
             <View style={[styles.container, { width, height }]}>
@@ -350,7 +365,7 @@ export default function StoryViewScreen() {
                 >
                     {/* Background */}
                     {currentStory.story_type === 'text' || !hasValidMedia ? (
-                        <View style={[styles.media, { backgroundColor: currentStory.background_color || '#667eea' }]}>
+                        <View style={[styles.media, { backgroundColor: currentStory.background_color || '#667eea', justifyContent: 'center', alignItems: 'center' }]}>
                             {currentStory.content && (
                                 <Text
                                     style={[
@@ -358,10 +373,7 @@ export default function StoryViewScreen() {
                                         {
                                             color: currentStory.text_color || '#FFFFFF',
                                             fontSize: currentStory.text_size || 24,
-                                            textAlign: currentStory.text_position === 'center' ? 'center' :
-                                                currentStory.text_position === 'bottom' ? 'left' : 'left',
-                                            alignSelf: currentStory.text_position === 'center' ? 'center' :
-                                                currentStory.text_position === 'bottom' ? 'flex-end' : 'flex-start',
+                                            textAlign: 'center',
                                         }
                                     ]}
                                 >
@@ -369,23 +381,22 @@ export default function StoryViewScreen() {
                                 </Text>
                             )}
                         </View>
-                    ) : currentStory.story_type === 'video' && hasValidMedia ? (
+                    ) : currentStory.story_type === 'video' ? (
                         <Video
                             source={{ uri: mediaUri }}
                             style={styles.media}
                             resizeMode="cover"
-                            paused={isPaused}
+                            paused={!isActive || isPaused}
                             muted={isMuted}
                             repeat
+                            onError={(e) => console.log('Story video error:', e)}
                         />
                     ) : (
-                        hasValidMedia && (
-                            <Image
-                                source={{ uri: mediaUri }}
-                                style={styles.media}
-                                resizeMode="cover"
-                            />
-                        )
+                        <Image
+                            source={{ uri: mediaUri }}
+                            style={styles.media}
+                            resizeMode="cover"
+                        />
                     )}
 
                     <View style={styles.topOverlay} />
@@ -399,12 +410,12 @@ export default function StoryViewScreen() {
                                         style={[
                                             styles.progressFill,
                                             {
-                                                width: idx === currentStoryIndex
+                                                width: idx === currentStoryIdx && isActive
                                                     ? progress.interpolate({
                                                         inputRange: [0, 1],
                                                         outputRange: ['0%', '100%'],
                                                     })
-                                                    : idx < currentStoryIndex ? '100%' : '0%',
+                                                    : idx < currentStoryIdx ? '100%' : '0%',
                                             },
                                         ]}
                                     />
@@ -414,22 +425,14 @@ export default function StoryViewScreen() {
 
                         <View style={styles.header}>
                             <View style={styles.userInfo}>
-                                {hasValidAvatar ? (
-                                    <Image
-                                        source={{ uri: avatarUrl }}
-                                        style={styles.avatar}
-                                    />
-                                ) : (
-                                    <View style={[styles.avatar, { backgroundColor: '#667eea', justifyContent: 'center', alignItems: 'center' }]}>
-                                        <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' }}>
-                                            {storyUser.username?.[0]?.toUpperCase() || '?'}
-                                        </Text>
-                                    </View>
-                                )}
+                                <Image
+                                    source={{ uri: avatarUrl && avatarUrl.startsWith('http') ? avatarUrl : 'https://ui-avatars.com/api/?name=' + storyUser.username }}
+                                    style={styles.avatar}
+                                />
                                 <View style={styles.userText}>
                                     <Text style={styles.username}>@{storyUser.username}</Text>
                                     <Text style={styles.metaText}>
-                                        {currentStoryIndex + 1} of {userGroup.stories.length} · Just now
+                                        {currentStoryIdx + 1} of {userGroup.stories.length} · {currentStory.created_at ? new Date(currentStory.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
                                     </Text>
                                 </View>
                             </View>

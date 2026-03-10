@@ -135,7 +135,13 @@ export default function ChatListScreen() {
                             style={[styles.lastMessage, { color: '#8E8E93' }]}
                             numberOfLines={1}
                         >
-                            {item.last_message?.content || 'No messages yet'}
+                            {item.last_message ? (
+                                item.last_message.one_time ? (
+                                    item.last_message.consumed_at ? '🔒 Opened' : '🔒 One-time view'
+                                ) : (
+                                    item.last_message.content || 'Media message'
+                                )
+                            ) : 'No messages yet'}
                         </Text>
                         {item.unread_count > 0 && (
                             <View style={styles.badge}>

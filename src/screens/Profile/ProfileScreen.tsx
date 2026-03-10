@@ -63,11 +63,9 @@ export default function ProfileScreen() {
                     console.log('====== PROFILE API RESPONSE ======');
                     console.log('Full response:', JSON.stringify(response, null, 2));
                     console.log('Success?:', response.success);
-                    console.log('Has data?:', !!response.data);
-
-                    if (response.success && response.data) {
+                    if (response.success && (response.data || response.user)) {
                         console.log('Setting user data...');
-                        setUser(response.data);
+                        setUser((response.data || response.user) as User);
 
                         if (response.scribes) {
                             setScribes(response.scribes);
@@ -87,8 +85,8 @@ export default function ProfileScreen() {
                 setIsLoading(false);
             } else if (username) {
                 const response = await api.getUserProfile(username);
-                if (response.success && response.data) {
-                    setUser(response.data);
+                if (response.success && (response.data || response.user)) {
+                    setUser(response.data || response.user);
                     if (response.scribes) {
                         setScribes(response.scribes);
                     } else {
@@ -109,6 +107,34 @@ export default function ProfileScreen() {
         } catch (error) {
             console.error('Error loading profile:', error);
             setIsLoading(false);
+        }
+    };
+
+    const handleMessage = async () => {
+        if (!user) return;
+        try {
+            const response = await api.createChat(user.username);
+            if (response.success && response.data?.chatId) {
+                (navigation as any).navigate('Chat', { chatId: response.data.chatId });
+            }
+        } catch (error) {
+            console.error('Error creating chat:', error);
+        }
+    };
+
+    const handleCall = async (type: 'voice' | 'video') => {
+        if (!user) return;
+        try {
+            const response = await api.createChat(user.username);
+            if (response.success && response.data?.chatId) {
+                const screen = type === 'voice' ? 'VoiceCall' : 'VideoCall';
+                (navigation as any).navigate(screen, {
+                    user: user,
+                    chatId: response.data.chatId
+                });
+            }
+        } catch (error) {
+            console.error('Error creating chat for call:', error);
         }
     };
 
@@ -285,14 +311,37 @@ export default function ProfileScreen() {
                                 </TouchableOpacity>
                             </View>
                         ) : (
-                            <TouchableOpacity
-                                onPress={handleFollow}
-                                style={[styles.followButton, { backgroundColor: isFollowing ? colors.background : colors.primary, borderWidth: isFollowing ? 1 : 0, borderColor: colors.border }]}
-                            >
-                                <Text style={[styles.followButtonText, { color: isFollowing ? colors.text : '#FFFFFF' }]}>
-                                    {isFollowing ? 'Following' : 'Follow'}
-                                </Text>
-                            </TouchableOpacity>
+                            <View style={styles.buttonRow}>
+                                <TouchableOpacity
+                                    onPress={handleFollow}
+                                    style={[styles.followButton, { backgroundColor: isFollowing ? colors.background : colors.primary, borderWidth: isFollowing ? 1 : 0, borderColor: colors.border }]}
+                                >
+                                    <Text style={[styles.followButtonText, { color: isFollowing ? colors.text : '#FFFFFF' }]}>
+                                        {isFollowing ? 'Following' : 'Follow'}
+                                    </Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    onPress={handleMessage}
+                                    style={[styles.iconButton, { borderColor: colors.border, backgroundColor: colors.background, borderWidth: 1 }]}
+                                >
+                                    <Icon name="chatbubble-outline" size={20} color={colors.text} />
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    onPress={() => handleCall('voice')}
+                                    style={[styles.iconButton, { borderColor: colors.border, backgroundColor: colors.background, borderWidth: 1 }]}
+                                >
+                                    <Icon name="call-outline" size={20} color={colors.text} />
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    onPress={() => handleCall('video')}
+                                    style={[styles.iconButton, { borderColor: colors.border, backgroundColor: colors.background, borderWidth: 1 }]}
+                                >
+                                    <Icon name="videocam-outline" size={20} color={colors.text} />
+                                </TouchableOpacity>
+                            </View>
                         )}
                     </View>
                 </View>
@@ -481,7 +530,7 @@ export default function ProfileScreen() {
                                     if (item.type === 'scribe') {
                                         // Transform saved item to Scribe format
                                         const scribe: Scribe = {
-                                            id: item.id.toString(),
+                                            id: Number(item.id),
                                             user: {
                                                 ...item.user,
                                                 id: Number(item.user.id),
@@ -489,7 +538,7 @@ export default function ProfileScreen() {
                                             content: item.content || '',
                                             content_type: item.media_type || 'text',
                                             image_url: item.image_url || '',
-                                            created_at: item.created_at,
+                                            createdAt: item.created_at,
                                             like_count: item.likes || 0,
                                             dislike_count: item.dislikes || 0,
                                             comment_count: item.comments || 0,
@@ -814,15 +863,23 @@ const styles = StyleSheet.create({
         fontWeight: '700',
     },
     followButton: {
-        paddingHorizontal: 24,
+        paddingHorizontal: 16,
         height: 38,
         borderRadius: 20,
         justifyContent: 'center',
         alignItems: 'center',
+        minWidth: 100,
     },
     followButtonText: {
         fontSize: 14,
         fontWeight: '700',
+    },
+    iconButton: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     tabBar: {
         flexDirection: 'row',

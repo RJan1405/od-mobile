@@ -49,7 +49,7 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
     const [commentCount, setCommentCount] = useState(omzo.comment_count);
     const [isSaved, setIsSaved] = useState(omzo.is_saved || false);
     const [shareCount] = useState(45); // Placeholder for share count
-    const [isFollowing, setIsFollowing] = useState(false);
+    const [isFollowing, setIsFollowing] = useState(omzo.is_following || false);
     const [paused, setPaused] = useState(!isActive);
     const [isMuted, setIsMuted] = useState(globalMuteState);
     const [showComments, setShowComments] = useState(false);
@@ -61,7 +61,8 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
         setLikeCount(omzo.like_count);
         setIsSaved(omzo.is_saved || false);
         setCommentCount(omzo.comment_count);
-    }, [omzo.is_liked, omzo.like_count, omzo.is_saved, omzo.comment_count]);
+        setIsFollowing(omzo.is_following || false);
+    }, [omzo.is_liked, omzo.like_count, omzo.is_saved, omzo.comment_count, omzo.is_following]);
 
     useEffect(() => {
         setPaused(!isActive);
@@ -103,17 +104,20 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
     };
 
     const handleFollow = async () => {
-        if (!omzo.user?.username) return;
+        if (!omzo.user?.username && !omzo.username) return;
 
         const prevFollowing = isFollowing;
         setIsFollowing(!isFollowing);
 
         try {
-            const response = await api.toggleFollow(omzo.user.username);
-            if (response.success) {
-                setIsFollowing((response as any).is_following);
-            } else {
-                setIsFollowing(prevFollowing);
+            const username = omzo.user?.username || omzo.username;
+            if (username) {
+                const response = await api.toggleFollow(username);
+                if (response.success) {
+                    setIsFollowing((response as any).is_following);
+                } else {
+                    setIsFollowing(prevFollowing);
+                }
             }
         } catch (error) {
             console.error('Error toggling follow:', error);
@@ -169,8 +173,9 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
     };
 
     const handleProfilePress = () => {
-        if (!omzo.user?.username) return;
-        (navigation as any).navigate('Profile', { username: omzo.user.username });
+        const username = omzo.user?.username || omzo.username;
+        if (!username) return;
+        (navigation as any).navigate('Profile', { username });
     };
 
     const handleCloseComments = () => {
@@ -188,15 +193,15 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
     };
 
     // Check for valid avatar URL
-    const avatarUri = omzo.user?.profile_picture_url || omzo.user?.profile_picture || '';
+    const avatarUri = omzo.user?.profile_picture_url || omzo.user_avatar || '';
     const hasValidAvatar = avatarUri && avatarUri !== 'null' && avatarUri.length > 0 && avatarUri.startsWith('http');
 
     // Check for valid video URL
-    const videoUri = omzo.video_file || omzo.video_url || '';
+    const videoUri = omzo.video_file || omzo.video_url || omzo.url || '';
     const hasValidVideo = videoUri && videoUri !== 'null' && videoUri.length > 0 && videoUri.startsWith('http');
 
     // Check if this is the current user's omzo
-    const isOwnOmzo = currentUser?.username === omzo.user?.username;
+    const isOwnOmzo = currentUser?.username === (omzo.user?.username || omzo.username);
 
     return (
         <View style={[styles.container, containerHeight ? { height: containerHeight } : undefined]}>
@@ -276,14 +281,14 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
                             ) : (
                                 <View style={[styles.avatarImage, styles.avatarPlaceholder]}>
                                     <Text style={styles.avatarText}>
-                                        {omzo.user?.username?.[0]?.toUpperCase() || '?'}
+                                        {(omzo.user?.username || omzo.username || '?')[0]?.toUpperCase()}
                                     </Text>
                                 </View>
                             )}
                         </View>
                         <View style={styles.usernameContainer}>
                             <Text style={styles.username}>
-                                @{omzo.user?.username || 'unknown'}
+                                @{omzo.user?.username || omzo.username || 'unknown'}
                             </Text>
                             {omzo.user?.is_verified && (
                                 <Icon name="checkmark-circle" size={16} color="#FFFFFF" style={{ marginLeft: 4 }} />

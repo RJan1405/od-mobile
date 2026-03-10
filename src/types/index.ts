@@ -131,12 +131,17 @@ export interface Story {
 
 export interface Omzo {
     id: number;
-    user: User;
+    user?: User;
+    user_id?: number;
+    username?: string;
+    user_avatar?: string;
     video_file: string;
     video_url?: string;
+    url?: string;
     thumbnail_url?: string;
     caption: string;
     created_at: string;
+    createdAt?: string;
     views_count: number;
     views?: number;
     like_count: number;
@@ -144,11 +149,15 @@ export interface Omzo {
     dislike_count?: number;
     dislikes?: number;
     comment_count: number;
+    comments_count?: number;
     comments?: number;
     is_liked?: boolean;
     is_disliked?: boolean;
     is_saved?: boolean;
-    is_muted: boolean;
+    is_muted?: boolean;
+    is_following?: boolean;
+    is_reposted?: boolean;
+    reposts?: number;
 }
 
 export interface Notification {

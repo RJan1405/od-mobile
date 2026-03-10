@@ -11,7 +11,7 @@ import {
     TextInput,
     Platform,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useAuthStore } from '@/stores/authStore';
 import { useThemeStore } from '@/stores/themeStore';
@@ -43,11 +43,20 @@ export default function HomeScreen() {
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [storiesData, setStoriesData] = useState<UserWithStories[]>([]);
 
+    // Refresh data when screen is focused
+    useFocusEffect(
+        React.useCallback(() => {
+            console.log('🏠 HomeScreen focused, refreshing data...');
+            loadChats();
+            fetchStories();
+            fetchNotifications();
+        }, [])
+    );
+
     useEffect(() => {
-        console.log('🏠 HomeScreen mounted, loading chats...');
-        loadChats();
-        fetchNotifications();
-        fetchStories();
+        console.log('🏠 HomeScreen mounted, setting up websockets...');
+        // Only fetch at mount once, focus effect handles subsequent ones
+        // loadChats(); ... moved to focus effect
 
         // Connect to WebSocket for real-time notifications
         let cleanupNotify: (() => void) | undefined;
@@ -77,7 +86,11 @@ export default function HomeScreen() {
                                 return {
                                     ...chat,
                                     unread_count: typeof e.unread_count === 'number' ? e.unread_count : chat.unread_count,
-                                    last_message: e.last_message ? e.last_message : chat.last_message,
+                                    last_message: e.last_message ? {
+                                        ...chat.last_message,
+                                        content: e.last_message,
+                                        timestamp: new Date().toISOString(),
+                                    } as any : chat.last_message,
                                 };
                             }
                             return chat;
@@ -92,7 +105,11 @@ export default function HomeScreen() {
                                 chat.id === e.chat.id ? {
                                     ...chat,
                                     unread_count: e.chat.unread_count,
-                                    last_message: e.chat.last_message ? { content: e.chat.last_message, timestamp: new Date().toISOString() } : chat.last_message,
+                                    last_message: e.chat.last_message ? {
+                                        ...chat.last_message,
+                                        content: e.chat.last_message,
+                                        timestamp: new Date().toISOString(),
+                                    } as any : chat.last_message,
                                     participants: e.chat.other_user ? [e.chat.other_user] : chat.participants,
                                 } : chat
                             );
@@ -103,14 +120,18 @@ export default function HomeScreen() {
                                 name: e.chat.other_user?.full_name || 'Unknown',
                                 group_avatar: e.chat.other_user?.avatar_url || '',
                                 participants: e.chat.other_user ? [e.chat.other_user] : [],
-                                last_message: e.chat.last_message ? { content: e.chat.last_message, timestamp: new Date().toISOString() } : undefined,
+                                last_message: e.chat.last_message ? {
+                                    content: e.chat.last_message,
+                                    timestamp: new Date().toISOString(),
+                                    sender: e.chat.other_user
+                                } as any : undefined,
                                 unread_count: e.chat.unread_count,
                                 is_public: false,
                                 created_at: new Date().toISOString(),
                                 updated_at: new Date().toISOString(),
                             }];
                         }
-                        useChatStore.setState({ chats: updatedChats });
+                        useChatStore.setState({ chats: updatedChats as Chat[] });
                     }
                 }, 120);
             };
@@ -209,10 +230,10 @@ export default function HomeScreen() {
     const handleStoryPress = (userStories: UserWithStories) => {
         if (userStories.is_own && userStories.stories.length === 0) {
             // Navigate to create story
-            navigation.navigate('CreateStory' as never);
+            navigation.navigate('CreateStory' as any);
         } else {
             // Navigate to story viewer
-            navigation.navigate('StoryView' as never, { userId: userStories.user.id } as never);
+            navigation.navigate('StoryView' as any, { userId: userStories.user.id });
         }
     };
 

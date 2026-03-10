@@ -53,8 +53,8 @@ export default function OmzoScreen() {
         try {
             // Get fresh data for currently loaded omzos
             const response = await api.getOmzoBatch(undefined);
-            if (response.success && (response as any).omzos) {
-                const freshOmzos = (response as any).omzos.map(transformOmzoData);
+            if (response.success && (response as any).data) {
+                const freshOmzos = (response as any).data.map(transformOmzoData);
                 // Update existing omzos with fresh data
                 setOmzos(prev => {
                     const updated = [...prev];
@@ -82,9 +82,9 @@ export default function OmzoScreen() {
             const response = await api.getOmzoBatch(cursor || undefined);
             console.log('📦 API Response:', JSON.stringify(response, null, 2));
 
-            // Backend returns omzos directly (not nested in data)
-            if (response.success && (response as any).omzos) {
-                const omzosData = (response as any).omzos.map(transformOmzoData);
+            // Backend returns omzos in data property
+            if (response.success && (response as any).data) {
+                const omzosData = (response as any).data.map(transformOmzoData);
                 setOmzos(prev => [...prev, ...omzosData]);
 
                 const nextCursor = (response as any).next_cursor;
