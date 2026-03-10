@@ -83,13 +83,40 @@ export default function HomeScreen() {
                     if (e.type === 'sidebar_update' && e.chat_id) {
                         const chats = useChatStore.getState().chats.map(chat => {
                             if (chat.id === Number(e.chat_id)) {
+                                // Apply one-time message detection to the new content
+                                const content = e.last_message;
+                                let displayContent = content;
+
+                                if (content) {
+                                    console.log('🔍 Sidebar content analysis:', {
+                                        chatId: e.chat_id,
+                                        content: content,
+                                        contentLength: content?.length
+                                    });
+
+                                    // Check for one-time message patterns
+                                    if (content.length <= 3) {
+                                        displayContent = '🔒 One-time view';
+                                        console.log('🔒 Sidebar: Short content detected, hiding:', content);
+                                    }
+                                    else if (content.match(/^[a-z]{2,3}$/i)) {
+                                        displayContent = '🔒 One-time view';
+                                        console.log('🔒 Sidebar: Letter pattern detected, hiding:', content);
+                                    }
+                                    else if (content.includes('🔒')) {
+                                        displayContent = '🔒 One-time view';
+                                        console.log('🔒 Sidebar: Lock emoji detected, hiding:', content);
+                                    }
+                                }
+
                                 return {
                                     ...chat,
                                     unread_count: typeof e.unread_count === 'number' ? e.unread_count : chat.unread_count,
                                     last_message: e.last_message ? {
                                         ...chat.last_message,
-                                        content: e.last_message,
+                                        content: displayContent,
                                         timestamp: new Date().toISOString(),
+                                        one_time: content !== displayContent, // Mark as one-time if we changed it
                                     } as any : chat.last_message,
                                 };
                             }

@@ -15,12 +15,15 @@ import {
     Modal,
     KeyboardAvoidingView,
     Platform,
+    DeviceEventEmitter,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import Video from 'react-native-video';
+import { WebView } from 'react-native-webview';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useThemeStore } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useFollowStore } from '@/stores/followStore';
 import api from '@/services/api';
 import ScribeCard from '@/components/ScribeCard';
 import type { User, Scribe, Omzo } from '@/types';
@@ -33,10 +36,30 @@ type ExploreItem = {
     data: any;
 };
 
+const ModalScribeImage = ({ uri }: { uri: string }) => {
+    const [aspectRatio, setAspectRatio] = useState<number>(1.5);
+    useEffect(() => {
+        if (!uri) return;
+        Image.getSize(uri, (width, height) => {
+            if (width && height && height > 0) {
+                setAspectRatio(Math.max(0.5, Math.min(width / height, 2.5)));
+            }
+        }, () => { });
+    }, [uri]);
+    return (
+        <Image
+            source={{ uri }}
+            style={[styles.modalImage, { height: undefined, aspectRatio }]}
+            resizeMode="cover"
+        />
+    );
+};
+
 export default function ExploreScreen() {
     const navigation = useNavigation();
     const { colors } = useThemeStore();
     const { user } = useAuthStore();
+    const { followStates, setFollowState, batchSetFollowStates } = useFollowStore();
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<any[]>([]);
     const [exploreFeed, setExploreFeed] = useState<any[]>([]);
@@ -47,6 +70,7 @@ export default function ExploreScreen() {
     const [currentPage, setCurrentPage] = useState(1);
     const [hasMore, setHasMore] = useState(true);
     const [selectedScribe, setSelectedScribe] = useState<any | null>(null);
+    const [activeTab, setActiveTab] = useState<'preview' | 'code'>('preview');
     const [selectedOmzo, setSelectedOmzo] = useState<any | null>(null);
     const [isModalVisible, setIsModalVisible] = useState(false);
     const [isOmzoModalVisible, setIsOmzoModalVisible] = useState(false);
@@ -74,6 +98,15 @@ export default function ExploreScreen() {
             hasLoadedRef.current = true;
             loadExploreFeed(1);
         }
+
+        const scribePostedListener = DeviceEventEmitter.addListener('SCRIBE_POSTED', () => {
+            console.log('🔄 ExploreScreen received SCRIBE_POSTED event. Refreshing...');
+            handleRefresh();
+        });
+
+        return () => {
+            scribePostedListener.remove();
+        };
     }, []);
 
     // On screen focus: only silently sync interaction states of already-loaded items
@@ -116,6 +149,81 @@ export default function ExploreScreen() {
         }
     }, [exploreFeed, selectedOmzo?.id, isOmzoModalVisible]);
 
+    // Helper: batch-fetch real follow states for a list of feed items and seed the global store
+    const applyFollowStatesToFeed = async (items: any[], currentUser: any) => {
+        try {
+            const usernames = [
+                ...new Set(
+                    items
+                        .map((item: any) => item.user?.username)
+                        .filter((u: string) => u && u !== currentUser?.username)
+                ),
+            ] as string[];
+
+            if (usernames.length === 0) return;
+
+            const statesResponse = await api.getFollowStates(usernames);
+            if (!statesResponse.success || !(statesResponse as any).follow_states) return;
+
+            const states = (statesResponse as any).follow_states as Record<string, { is_following: boolean }>;
+
+            // Seed global store — propagates to all mounted subscribers (ProfileScreen, ScribeCard, etc.)
+            const toSeed: Record<string, boolean> = {};
+            for (const uname of usernames) {
+                if (states[uname] !== undefined) {
+                    toSeed[uname] = states[uname].is_following;
+                }
+            }
+            batchSetFollowStates(toSeed);
+
+            // Also patch feed items so omzo card's direct `item.user.isFollowing` read is correct
+            setExploreFeed(prev =>
+                prev.map(feedItem => {
+                    const uname = feedItem.user?.username;
+                    if (uname && states[uname] !== undefined) {
+                        return {
+                            ...feedItem,
+                            user: { ...feedItem.user, isFollowing: states[uname].is_following },
+                        };
+                    }
+                    return feedItem;
+                })
+            );
+        } catch (e) {
+            // non-critical
+        }
+    };
+
+    // Helper: batch-fetch real follow states for search results and seed the global store
+    const applyFollowStatesToSearch = async (results: any[], currentUser: any) => {
+        try {
+            const usernames = [
+                ...new Set(
+                    results
+                        .filter((item: any) => item.type === 'person')
+                        .map((item: any) => item.data?.username || item.subtitle?.replace('@', '') || item.username || '')
+                        .filter((u: string) => u && u !== currentUser?.username)
+                ),
+            ] as string[];
+
+            if (usernames.length === 0) return;
+
+            const statesResponse = await api.getFollowStates(usernames);
+            if (!statesResponse.success || !(statesResponse as any).follow_states) return;
+
+            const states = (statesResponse as any).follow_states as Record<string, { is_following: boolean }>;
+
+            // Seed global store
+            const toSeed: Record<string, boolean> = {};
+            for (const uname of usernames) {
+                if (states[uname] !== undefined) toSeed[uname] = states[uname].is_following;
+            }
+            batchSetFollowStates(toSeed);
+        } catch (e) {
+            // non-critical
+        }
+    };
+
     // Core paginated loader — safe to call concurrently via ref guard
     const loadExploreFeed = async (page: number = 1) => {
         if (isLoadingRef.current) return;  // ref-based guard — always current unlike state
@@ -141,6 +249,9 @@ export default function ExploreScreen() {
                 currentPageRef.current = page;
                 setHasMore(more);
                 setCurrentPage(page);
+
+                // Fetch real follow states for the loaded batch
+                applyFollowStatesToFeed(incoming, user);
             } else {
                 if (page === 1) setExploreFeed([]);
                 hasMoreRef.current = false;
@@ -168,6 +279,7 @@ export default function ExploreScreen() {
 
     const openScribeModal = (item: any) => {
         setSelectedScribe(item);
+        setActiveTab('preview');
         setModalLiked(item.isLiked || false);
         setModalDisliked(item.isDisliked || false);
         setModalSaved(item.isSaved || false);
@@ -622,10 +734,12 @@ export default function ExploreScreen() {
         setIsSearching(true);
         try {
             const response = await api.globalSearch(query);
-            console.log('🔍 Search Response:', JSON.stringify(response, null, 2));
 
             if (response.success && response.results) {
-                setSearchResults(response.results);
+                const results = response.results;
+                setSearchResults(results);
+                // Fetch real follow states for person results
+                applyFollowStatesToSearch(results, user);
             }
         } catch (error) {
             console.error('❌ Error searching:', error);
@@ -635,62 +749,61 @@ export default function ExploreScreen() {
     };
 
     const handleFollowUser = async (username: string, event?: any) => {
-        // Stop event propagation to prevent parent TouchableOpacity from being triggered
-        if (event) {
-            event.stopPropagation();
-        }
+        if (event) event.stopPropagation();
+        if (!username) return;
 
-        if (!username) {
-            console.error('❌ No username provided for follow action');
-            return;
-        }
+        // Current state from global store
+        const prevFollowing = followStates[username] ?? false;
+        const newFollowing = !prevFollowing;
 
-        console.log('👤 Following user:', username);
+        // Optimistic update — global store propagates instantly to ALL mounted subscribers
+        setFollowState(username, newFollowing);
+        // Also patch feed item so omzo card's direct item.user.isFollowing read updates
+        setExploreFeed(prev => prev.map(feedItem =>
+            feedItem.user?.username === username
+                ? { ...feedItem, user: { ...feedItem.user, isFollowing: newFollowing } }
+                : feedItem
+        ));
+
         try {
             const response = await api.toggleFollow(username);
-            console.log('✅ Follow response:', JSON.stringify(response, null, 2));
-
             if (response.success) {
-                console.log('✅ Successfully toggled follow for:', username);
-                const nowFollowing = (response as any).is_following;
+                const nowFollowing = (response as any).is_following ?? newFollowing;
 
-                // Update search results
-                setSearchResults(prev => prev.map(item => {
-                    if (item.type === 'person' &&
-                        (item.data?.username === username || item.subtitle?.replace('@', '') === username)) {
-                        return {
-                            ...item,
-                            data: {
-                                ...item.data,
-                                is_following: nowFollowing
-                            }
-                        };
-                    }
-                    return item;
-                }));
+                // Authoritative update in global store
+                setFollowState(username, nowFollowing);
+                setExploreFeed(prev => prev.map(feedItem =>
+                    feedItem.user?.username === username
+                        ? { ...feedItem, user: { ...feedItem.user, isFollowing: nowFollowing } }
+                        : feedItem
+                ));
 
-                // Update explore feed — update isFollowing on all matching user items
-                setExploreFeed(prev => prev.map(feedItem => {
-                    if (feedItem.user?.username === username) {
-                        return {
-                            ...feedItem,
-                            user: {
-                                ...feedItem.user,
-                                isFollowing: nowFollowing,
-                            },
-                        };
-                    }
-                    return feedItem;
-                }));
+                // Update MY following_count in authStore
+                const { user: me, updateUser } = useAuthStore.getState();
+                if (me) {
+                    updateUser({
+                        ...me,
+                        following_count: nowFollowing
+                            ? me.following_count + 1
+                            : Math.max(0, me.following_count - 1),
+                    });
+                }
             } else {
-                console.error('❌ Follow request failed:', response.message || 'Unknown error');
+                // Revert
+                setFollowState(username, prevFollowing);
+                setExploreFeed(prev => prev.map(feedItem =>
+                    feedItem.user?.username === username
+                        ? { ...feedItem, user: { ...feedItem.user, isFollowing: prevFollowing } }
+                        : feedItem
+                ));
             }
-        } catch (error) {
-            console.error('❌ Error following user:', error);
-            if (error instanceof Error) {
-                console.error('Error message:', error.message);
-                console.error('Error stack:', error.stack);
-            }
+        } catch {
+            setFollowState(username, prevFollowing);
+            setExploreFeed(prev => prev.map(feedItem =>
+                feedItem.user?.username === username
+                    ? { ...feedItem, user: { ...feedItem.user, isFollowing: prevFollowing } }
+                    : feedItem
+            ));
         }
     };
 
@@ -703,24 +816,20 @@ export default function ExploreScreen() {
             if (item.data?.username) {
                 username = item.data.username;
             } else if (item.subtitle) {
-                // Remove @ if present
                 username = item.subtitle.replace('@', '');
             } else if (item.username) {
                 username = item.username;
             }
 
-            console.log('Search result item:', {
-                title: item.title,
-                subtitle: item.subtitle,
-                username: username,
-                data: item.data
-            });
+            // Read follow state from global store (updated instantly on any toggle)
+            const isItemFollowing = followStates[username] ?? item.data?.is_following ?? false;
+            // Don't show follow button for current user's own profile
+            const isOwnProfile = user?.username === username;
 
             return (
                 <TouchableOpacity
                     style={[styles.resultItem, { backgroundColor: colors.surface }]}
                     onPress={() => {
-                        console.log('Navigating to profile:', username);
                         navigation.navigate('Profile' as never, { username: username } as never);
                     }}
                     activeOpacity={0.7}
@@ -743,17 +852,30 @@ export default function ExploreScreen() {
                             {item.subtitle}
                         </Text>
                     </View>
-                    <TouchableOpacity
-                        style={[styles.followButton, { backgroundColor: colors.primary }]}
-                        onPress={(e) => {
-                            e.stopPropagation();
-                            console.log('Follow button pressed for:', username);
-                            handleFollowUser(username);
-                        }}
-                        activeOpacity={0.8}
-                    >
-                        <Text style={styles.followButtonText}>Follow</Text>
-                    </TouchableOpacity>
+                    {!isOwnProfile && (
+                        <TouchableOpacity
+                            style={[
+                                styles.followButton,
+                                isItemFollowing
+                                    ? { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }
+                                    : { backgroundColor: colors.primary },
+                            ]}
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                handleFollowUser(username);
+                            }}
+                            activeOpacity={0.8}
+                        >
+                            <Text
+                                style={[
+                                    styles.followButtonText,
+                                    isItemFollowing && { color: colors.text },
+                                ]}
+                            >
+                                {isItemFollowing ? 'Following' : 'Follow'}
+                            </Text>
+                        </TouchableOpacity>
+                    )}
                 </TouchableOpacity>
             );
         }
@@ -815,7 +937,9 @@ export default function ExploreScreen() {
                     full_name: item.user?.displayName,
                     profile_picture_url: item.user?.avatar,
                     is_verified: item.user?.isVerified,
-                },
+                    // Pass both naming conventions so ScribeCard's useEffect catches updates
+                    is_following: item.user?.isFollowing ?? item.user?.is_following ?? false,
+                } as any,
                 content: item.content || '',
                 image_url: item.mediaUrl,
                 content_type: item.scribeType || 'text',
@@ -830,7 +954,8 @@ export default function ExploreScreen() {
                 code_html: item.code_html || '',
                 code_css: item.code_css || '',
                 code_js: item.code_js || '',
-                is_following: item.user?.isFollowing || false,
+                // Top-level is_following for ScribeCard's primary check
+                is_following: item.user?.isFollowing ?? item.user?.is_following ?? false,
             };
 
             return (
@@ -890,15 +1015,27 @@ export default function ExploreScreen() {
                             <Text style={styles.exploreOmzoHandle}>@{item.user?.username || 'unknown'}</Text>
                         </View>
 
-                        {/* Follow button — only show when not own post and not already following */}
-                        {!isOwnOmzo && !isFollowingOmzoUser && (
+                        {/* Follow button — show when not own post, toggle between Follow/Following */}
+                        {!isOwnOmzo && (
                             <TouchableOpacity
-                                style={styles.exploreFollowBtn}
+                                style={[
+                                    styles.exploreFollowBtn,
+                                    isFollowingOmzoUser
+                                        ? { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#6B7280' }
+                                        : {},
+                                ]}
                                 onPress={() => handleFollowUser(item.user?.username, undefined)}
                                 hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                                 activeOpacity={0.8}
                             >
-                                <Text style={styles.exploreFollowBtnText}>Follow</Text>
+                                <Text
+                                    style={[
+                                        styles.exploreFollowBtnText,
+                                        isFollowingOmzoUser && { color: '#9CA3AF' },
+                                    ]}
+                                >
+                                    {isFollowingOmzoUser ? 'Following' : 'Follow'}
+                                </Text>
                             </TouchableOpacity>
                         )}
 
@@ -1353,11 +1490,97 @@ export default function ExploreScreen() {
 
                                     {/* Media */}
                                     {selectedScribe.mediaUrl && selectedScribe.mediaUrl.trim() !== '' && selectedScribe.mediaUrl.startsWith('http') && (
-                                        <Image
-                                            source={{ uri: selectedScribe.mediaUrl }}
-                                            style={styles.modalImage}
-                                            resizeMode="cover"
-                                        />
+                                        <ModalScribeImage uri={selectedScribe.mediaUrl} />
+                                    )}
+
+                                    {/* Code snippets & Live Preview */}
+                                    {!!(selectedScribe.code_html || selectedScribe.code_css || selectedScribe.code_js) && (
+                                        <View style={styles.codeContainer}>
+                                            <View style={styles.tabContainer}>
+                                                <TouchableOpacity
+                                                    style={[styles.tabButton, activeTab === 'preview' && styles.tabButtonActive]}
+                                                    onPress={() => setActiveTab('preview')}
+                                                >
+                                                    <Icon name="play" size={14} color={activeTab === 'preview' ? '#3B82F6' : '#6B7280'} />
+                                                    <Text style={[styles.tabText, activeTab === 'preview' && styles.tabTextActive]}>Live Preview</Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity
+                                                    style={[styles.tabButton, activeTab === 'code' && styles.tabButtonActive]}
+                                                    onPress={() => setActiveTab('code')}
+                                                >
+                                                    <Icon name="code" size={14} color={activeTab === 'code' ? '#3B82F6' : '#6B7280'} />
+                                                    <Text style={[styles.tabText, activeTab === 'code' && styles.tabTextActive]}>Source Code</Text>
+                                                </TouchableOpacity>
+                                            </View>
+
+                                            {activeTab === 'preview' ? (
+                                                <View style={styles.webviewContainer}>
+                                                    <WebView
+                                                        source={{
+                                                            html: `
+                                                            <!DOCTYPE html>
+                                                            <html>
+                                                            <head>
+                                                                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+                                                                <style>
+                                                                    body { margin: 0; padding: 0; }
+                                                                    ${selectedScribe.code_css || ''}
+                                                                </style>
+                                                            </head>
+                                                            <body>
+                                                                ${selectedScribe.code_html || ''}
+                                                                <script>
+                                                                    ${selectedScribe.code_js || ''}
+                                                                </script>
+                                                            </body>
+                                                            </html>
+                                                        ` }}
+                                                        style={styles.webview}
+                                                        scrollEnabled={false}
+                                                        showsVerticalScrollIndicator={false}
+                                                        showsHorizontalScrollIndicator={false}
+                                                    />
+                                                </View>
+                                            ) : (
+                                                <View>
+                                                    {selectedScribe.code_html ? (
+                                                        <View style={styles.codeBlock}>
+                                                            <View style={styles.codeHeader}>
+                                                                <Text style={styles.codeLang}>HTML</Text>
+                                                                <Icon name="code-slash" size={14} color="#3B82F6" />
+                                                            </View>
+                                                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.codeScroll}>
+                                                                <Text style={styles.codeText}>{selectedScribe.code_html.trimEnd()}</Text>
+                                                            </ScrollView>
+                                                        </View>
+                                                    ) : null}
+
+                                                    {selectedScribe.code_css ? (
+                                                        <View style={styles.codeBlock}>
+                                                            <View style={styles.codeHeader}>
+                                                                <Text style={styles.codeLang}>CSS</Text>
+                                                                <Icon name="color-palette-outline" size={14} color="#10B981" />
+                                                            </View>
+                                                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.codeScroll}>
+                                                                <Text style={styles.codeText}>{selectedScribe.code_css.trimEnd()}</Text>
+                                                            </ScrollView>
+                                                        </View>
+                                                    ) : null}
+
+                                                    {selectedScribe.code_js ? (
+                                                        <View style={styles.codeBlock}>
+                                                            <View style={styles.codeHeader}>
+                                                                <Text style={styles.codeLang}>JS</Text>
+                                                                <Icon name="logo-javascript" size={14} color="#F59E0B" />
+                                                            </View>
+                                                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.codeScroll}>
+                                                                <Text style={styles.codeText}>{selectedScribe.code_js.trimEnd()}</Text>
+                                                            </ScrollView>
+                                                        </View>
+                                                    ) : null}
+                                                </View>
+                                            )}
+                                        </View>
                                     )}
 
                                     {/* Timestamp */}
@@ -2090,7 +2313,7 @@ const styles = StyleSheet.create({
         elevation: 5,
     },
     modalScrollContent: {
-        maxHeight: SCREEN_HEIGHT * 0.35,
+        maxHeight: SCREEN_HEIGHT * 0.70, // Increased extensively to fit entire scribe content
         paddingBottom: 10,
     },
     modalScribeCard: {
@@ -2126,9 +2349,89 @@ const styles = StyleSheet.create({
     },
     modalImage: {
         width: '100%',
-        aspectRatio: 1,
         borderRadius: 16,
         marginVertical: 16,
+    },
+    modalActionItemActive: {
+        backgroundColor: '#EBF5FF',
+    },
+    codeContainer: {
+        marginBottom: 12,
+        gap: 8,
+    },
+    tabContainer: {
+        flexDirection: 'row',
+        backgroundColor: '#F3F4F6',
+        borderRadius: 8,
+        padding: 4,
+        marginBottom: 4,
+    },
+    tabButton: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 8,
+        borderRadius: 6,
+        gap: 6,
+    },
+    tabButtonActive: {
+        backgroundColor: '#FFFFFF',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+        elevation: 2,
+    },
+    tabText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#6B7280',
+    },
+    tabTextActive: {
+        color: '#3B82F6',
+    },
+    webviewContainer: {
+        height: 400,
+        backgroundColor: '#FFFFFF',
+        borderRadius: 8,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+    },
+    webview: {
+        flex: 1,
+        backgroundColor: 'transparent',
+    },
+    codeBlock: {
+        backgroundColor: '#F3F4F6',
+        borderRadius: 8,
+        overflow: 'hidden',
+        marginBottom: 8,
+    },
+    codeHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        backgroundColor: '#E5E7EB',
+        borderBottomWidth: 1,
+        borderBottomColor: '#D1D5DB',
+    },
+    codeLang: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#374151',
+    },
+    codeScroll: {
+        padding: 12,
+        maxHeight: 400,
+    },
+    codeText: {
+        fontFamily: 'monospace',
+        fontSize: 13,
+        color: '#1F2937',
     },
     modalOmzoVideo: {
         width: '100%',

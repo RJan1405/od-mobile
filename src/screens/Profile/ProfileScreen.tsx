@@ -10,12 +10,14 @@ import {
     SafeAreaView,
     StatusBar,
     Share,
+    DeviceEventEmitter,
 } from 'react-native';
 import Video from 'react-native-video';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useFollowStore } from '@/stores/followStore';
 import { THEME_INFO } from '@/config';
 import api from '@/services/api';
 import type { User, Scribe, Omzo } from '@/types';
@@ -42,42 +44,42 @@ export default function ProfileScreen() {
     const [savedItems, setSavedItems] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isLoadingSaved, setIsLoadingSaved] = useState(false);
-    const [isFollowing, setIsFollowing] = useState(false);
     const [activeTab, setActiveTab] = useState<'scribes' | 'omzos' | 'saved'>('scribes');
-    const [postCount, setPostCount] = useState(0);
+
+    // Global follow store — shared across all screens/components
+    const { followStates, setFollowState, batchSetFollowStates } = useFollowStore();
+    const profileUsername = username || currentUser?.username || '';
+    const isFollowing = followStates[profileUsername] ?? false;
 
     const themeInfo = THEME_INFO[theme];
     const isOwnProfile = !username || username === currentUser?.username;
 
     useEffect(() => {
         loadProfile();
+
+        const scribePostedListener = DeviceEventEmitter.addListener('SCRIBE_POSTED', () => {
+            console.log('🔄 ProfileScreen received SCRIBE_POSTED event. Refreshing...');
+            loadProfile();
+        });
+
+        return () => {
+            scribePostedListener.remove();
+        };
     }, [username, currentUser]);
 
     const loadProfile = async () => {
         setIsLoading(true);
         try {
             if (isOwnProfile) {
-                // Use getUserProfile with currentUser's username to get scribes and omzos
                 if (currentUser?.username) {
                     const response = await api.getUserProfile(currentUser.username);
-                    console.log('====== PROFILE API RESPONSE ======');
-                    console.log('Full response:', JSON.stringify(response, null, 2));
-                    console.log('Success?:', response.success);
                     if (response.success && (response.data || response.user)) {
-                        console.log('Setting user data...');
-                        setUser((response.data || response.user) as User);
-
-                        if (response.scribes) {
-                            setScribes(response.scribes);
-                        } else {
-                            setScribes([]);
-                        }
-
-                        if (response.omzos) {
-                            setOmzos(response.omzos);
-                        } else {
-                            setOmzos([]);
-                        }
+                        const profileData = (response.data || response.user) as User;
+                        setUser(profileData);
+                        setScribes(response.scribes || []);
+                        setOmzos(response.omzos || []);
+                        // Own profile — never following yourself
+                        setFollowState(profileUsername, false);
                     } else {
                         console.error('Response not successful or no data:', response);
                     }
@@ -86,18 +88,42 @@ export default function ProfileScreen() {
             } else if (username) {
                 const response = await api.getUserProfile(username);
                 if (response.success && (response.data || response.user)) {
-                    setUser(response.data || response.user);
-                    if (response.scribes) {
-                        setScribes(response.scribes);
-                    } else {
-                        setScribes([]);
-                    }
+                    const profileData = (response.data || response.user) as User;
+                    setUser(profileData);
 
-                    if (response.omzos) {
-                        setOmzos(response.omzos);
-                    } else {
-                        setOmzos([]);
-                    }
+                    // Use getFollowStates as single authoritative source (same as ExploreScreen)
+                    // Seed initial value from profile response while we wait
+                    setFollowState(username, (profileData as any).is_following || false);
+
+                    const scribesRaw = response.scribes || [];
+                    const omzosRaw = response.omzos || [];
+                    setScribes(scribesRaw);
+                    setOmzos(omzosRaw);
+
+                    // Batch-fetch authoritative follow state for this user
+                    api.getFollowStates([username]).then(statesResponse => {
+                        const states = (statesResponse as any).follow_states as Record<string, { is_following: boolean }>;
+                        if (!statesResponse.success || !states) return;
+
+                        const nowFollowing = states[username]?.is_following ?? (profileData as any).is_following ?? false;
+
+                        // Update global store — propagates to all mounted subscribers
+                        setFollowState(username, nowFollowing);
+
+                        // Stamp is_following onto every scribe so ScribeCard initializes correctly
+                        setScribes(prev => prev.map(s => ({
+                            ...s,
+                            is_following: nowFollowing,
+                            user: { ...s.user, is_following: nowFollowing },
+                        })));
+
+                        // Stamp is_following onto every omzo so OmzoViewerScreen initializes correctly
+                        setOmzos(prev => prev.map(o => ({
+                            ...o,
+                            is_following: nowFollowing,
+                            user: { ...o.user, is_following: nowFollowing },
+                        } as any)));
+                    }).catch(() => {/* non-critical */ });
                 }
                 setIsLoading(false);
             } else {
@@ -130,7 +156,7 @@ export default function ProfileScreen() {
                 const screen = type === 'voice' ? 'VoiceCall' : 'VideoCall';
                 (navigation as any).navigate(screen, {
                     user: user,
-                    chatId: response.data.chatId
+                    chatId: response.data.chatId,
                 });
             }
         } catch (error) {
@@ -140,18 +166,61 @@ export default function ProfileScreen() {
 
     const handleFollow = async () => {
         if (!user) return;
+        const prevFollowing = isFollowing;
+        const newFollowing = !isFollowing;
+
+        // Optimistic update — global store propagates instantly to all subscribers
+        setFollowState(profileUsername, newFollowing);
+        setUser(prev => prev ? {
+            ...prev,
+            follower_count: newFollowing ? prev.follower_count + 1 : Math.max(0, prev.follower_count - 1),
+        } : null);
 
         try {
             const response = await api.toggleFollow(user.username);
             if (response.success) {
-                setIsFollowing(!isFollowing);
+                // Authoritative server state
+                const nowFollowing = (response as any).is_following ?? newFollowing;
+
+                // Update global store with authoritative value
+                setFollowState(profileUsername, nowFollowing);
+
+                // Update viewed profile's follower_count
                 setUser(prev => prev ? {
                     ...prev,
-                    follower_count: isFollowing ? prev.follower_count - 1 : prev.follower_count + 1,
+                    follower_count: nowFollowing
+                        ? prev.follower_count + (prevFollowing ? 0 : 1)  // only add if wasn't already following
+                        : Math.max(0, prev.follower_count - (prevFollowing ? 1 : 0)),
+                } : null);
+
+                // Update MY following_count in authStore
+                const { user: me, updateUser } = useAuthStore.getState();
+                if (me) {
+                    updateUser({
+                        ...me,
+                        following_count: nowFollowing
+                            ? me.following_count + 1
+                            : Math.max(0, me.following_count - 1),
+                    });
+                }
+            } else {
+                // Revert on failure
+                setFollowState(profileUsername, prevFollowing);
+                setUser(prev => prev ? {
+                    ...prev,
+                    follower_count: prevFollowing
+                        ? prev.follower_count + 1
+                        : Math.max(0, prev.follower_count - 1),
                 } : null);
             }
-        } catch (error) {
-            console.error('Error toggling follow:', error);
+        } catch {
+            setFollowState(profileUsername, prevFollowing);
+            setUser(prev => prev ? {
+                ...prev,
+                follower_count: prevFollowing
+                    ? prev.follower_count + 1
+                    : Math.max(0, prev.follower_count - 1),
+            } : null);
         }
     };
 
@@ -167,11 +236,9 @@ export default function ProfileScreen() {
 
     const loadSavedItems = async () => {
         if (!isOwnProfile) return;
-
         setIsLoadingSaved(true);
         try {
             const response = await api.getSavedItems();
-            console.log('📌 Saved items response:', response);
             if (response.success && (response as any).saved_items) {
                 setSavedItems((response as any).saved_items);
             }
@@ -188,7 +255,6 @@ export default function ProfileScreen() {
         }
     }, [activeTab]);
 
-    // Reload saved items when screen gains focus
     useFocusEffect(
         React.useCallback(() => {
             if (activeTab === 'saved' && isOwnProfile) {
@@ -197,19 +263,19 @@ export default function ProfileScreen() {
         }, [activeTab, isOwnProfile])
     );
 
-    // Handle save toggle callback from ScribeCard
     const handleScribeSaveToggle = (scribeId: number, isSaved: boolean) => {
         if (!isSaved && activeTab === 'saved') {
-            // Remove from saved items if unsaved
-            setSavedItems(prev => prev.filter(item => item.type !== 'scribe' || item.id !== scribeId));
+            setSavedItems(prev =>
+                prev.filter(item => item.type !== 'scribe' || item.id !== scribeId)
+            );
         }
     };
 
-    // Handle save toggle callback from saved omzo display
     const handleOmzoSaveToggle = (omzoId: number, isSaved: boolean) => {
         if (!isSaved && activeTab === 'saved') {
-            // Remove from saved items if unsaved
-            setSavedItems(prev => prev.filter(item => item.type !== 'omzo' || item.id !== omzoId));
+            setSavedItems(prev =>
+                prev.filter(item => item.type !== 'omzo' || item.id !== omzoId)
+            );
         }
     };
 
@@ -239,7 +305,11 @@ export default function ProfileScreen() {
 
     // Validate profile picture URL
     const profilePicUri = user.profile_picture_url || user.profile_picture || '';
-    const hasValidProfilePic = profilePicUri && profilePicUri !== 'null' && profilePicUri.trim().length > 0 && profilePicUri.startsWith('http');
+    const hasValidProfilePic =
+        profilePicUri &&
+        profilePicUri !== 'null' &&
+        profilePicUri.trim().length > 0 &&
+        profilePicUri.startsWith('http');
 
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -251,13 +321,18 @@ export default function ProfileScreen() {
             {/* Header */}
             <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
                 <View>
-                    <Text style={[styles.headerName, { color: colors.text }]}>{user.full_name || user.username}</Text>
+                    <Text style={[styles.headerName, { color: colors.text }]}>
+                        {user.full_name || user.username}
+                    </Text>
                 </View>
                 <View style={styles.headerRight}>
                     <TouchableOpacity onPress={handleShare} style={styles.headerIconWrapper}>
                         <Icon name="share-outline" size={24} color={colors.text} />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => navigation.navigate('Settings' as never)} style={styles.headerIconWrapper}>
+                    <TouchableOpacity
+                        onPress={() => navigation.navigate('Settings' as never)}
+                        style={styles.headerIconWrapper}
+                    >
                         <Icon name="settings-outline" size={24} color={colors.text} />
                     </TouchableOpacity>
                 </View>
@@ -285,7 +360,13 @@ export default function ProfileScreen() {
                                 style={[styles.profileImage, { borderColor: colors.background, borderWidth: 4 }]}
                             />
                         ) : (
-                            <View style={[styles.profileImage, styles.profileImagePlaceholder, { backgroundColor: colors.primary, borderColor: colors.background, borderWidth: 4 }]}>
+                            <View
+                                style={[
+                                    styles.profileImage,
+                                    styles.profileImagePlaceholder,
+                                    { backgroundColor: colors.primary, borderColor: colors.background, borderWidth: 4 },
+                                ]}
+                            >
                                 <Text style={styles.profileImageText}>
                                     {user.username?.[0]?.toUpperCase() || '?'}
                                 </Text>
@@ -314,7 +395,14 @@ export default function ProfileScreen() {
                             <View style={styles.buttonRow}>
                                 <TouchableOpacity
                                     onPress={handleFollow}
-                                    style={[styles.followButton, { backgroundColor: isFollowing ? colors.background : colors.primary, borderWidth: isFollowing ? 1 : 0, borderColor: colors.border }]}
+                                    style={[
+                                        styles.followButton,
+                                        {
+                                            backgroundColor: isFollowing ? colors.background : colors.primary,
+                                            borderWidth: isFollowing ? 1 : 0,
+                                            borderColor: colors.border,
+                                        },
+                                    ]}
                                 >
                                     <Text style={[styles.followButtonText, { color: isFollowing ? colors.text : '#FFFFFF' }]}>
                                         {isFollowing ? 'Following' : 'Follow'}
@@ -356,9 +444,7 @@ export default function ProfileScreen() {
                     </Text>
 
                     {user.bio && (
-                        <Text style={[styles.bioText, { color: colors.text }]}>
-                            {user.bio}
-                        </Text>
+                        <Text style={[styles.bioText, { color: colors.text }]}>{user.bio}</Text>
                     )}
 
                     <View style={styles.locationJoinedRow}>
@@ -395,7 +481,7 @@ export default function ProfileScreen() {
                         onPress={() => setActiveTab('scribes')}
                     >
                         <Icon
-                            name={activeTab === 'scribes' ? "grid" : "grid-outline"}
+                            name={activeTab === 'scribes' ? 'grid' : 'grid-outline'}
                             size={20}
                             color={activeTab === 'scribes' ? colors.primary : colors.textSecondary}
                         />
@@ -403,12 +489,13 @@ export default function ProfileScreen() {
                             Scribes
                         </Text>
                     </TouchableOpacity>
+
                     <TouchableOpacity
                         style={[styles.tab, activeTab === 'omzos' && { borderBottomColor: colors.primary, borderBottomWidth: 2 }]}
                         onPress={() => setActiveTab('omzos')}
                     >
                         <Icon
-                            name={activeTab === 'omzos' ? "film" : "film-outline"}
+                            name={activeTab === 'omzos' ? 'film' : 'film-outline'}
                             size={20}
                             color={activeTab === 'omzos' ? colors.primary : colors.textSecondary}
                         />
@@ -416,13 +503,14 @@ export default function ProfileScreen() {
                             Omzos
                         </Text>
                     </TouchableOpacity>
+
                     {isOwnProfile && (
                         <TouchableOpacity
                             style={[styles.tab, activeTab === 'saved' && { borderBottomColor: colors.primary, borderBottomWidth: 2 }]}
                             onPress={() => setActiveTab('saved')}
                         >
                             <Icon
-                                name={activeTab === 'saved' ? "bookmark" : "bookmark-outline"}
+                                name={activeTab === 'saved' ? 'bookmark' : 'bookmark-outline'}
                                 size={20}
                                 color={activeTab === 'saved' ? colors.primary : colors.textSecondary}
                             />
@@ -433,11 +521,11 @@ export default function ProfileScreen() {
                     )}
                 </View>
 
-                {/* Content */}
+                {/* Tab Content */}
                 <View style={styles.content}>
                     {activeTab === 'scribes' && (
                         scribes.length > 0 ? (
-                            scribes.map((scribe) => (
+                            scribes.map(scribe => (
                                 <ScribeCard key={scribe.id} scribe={scribe} />
                             ))
                         ) : (
@@ -446,12 +534,14 @@ export default function ProfileScreen() {
                             </Text>
                         )
                     )}
+
                     {activeTab === 'omzos' && (
                         omzos.length > 0 ? (
                             <View style={styles.omzosGrid}>
-                                {omzos.map((omzo) => {
+                                {omzos.map(omzo => {
                                     const videoUri = omzo.video_url || omzo.video_file || '';
-                                    const hasValidVideo = videoUri &&
+                                    const hasValidVideo =
+                                        videoUri &&
                                         videoUri !== 'null' &&
                                         videoUri.trim().length > 0 &&
                                         videoUri.startsWith('http');
@@ -462,7 +552,6 @@ export default function ProfileScreen() {
                                             style={styles.omzoThumbnail}
                                             onPress={() => {
                                                 console.log('Omzo clicked:', omzo.id);
-                                                // Navigate to OmzoViewer with transformed data
                                                 const transformedOmzo = {
                                                     id: omzo.id,
                                                     user: omzo.user,
@@ -478,6 +567,8 @@ export default function ProfileScreen() {
                                                     is_liked: omzo.is_liked || false,
                                                     is_disliked: omzo.is_disliked || false,
                                                     is_saved: omzo.is_saved || false,
+                                                    // Pass follow state so OmzoViewerScreen initializes correctly
+                                                    is_following: (omzo as any).is_following ?? isFollowing,
                                                 };
                                                 (navigation as any).navigate('OmzoViewer', { omzo: transformedOmzo });
                                             }}
@@ -495,7 +586,17 @@ export default function ProfileScreen() {
                                                         posterResizeMode="cover"
                                                     />
                                                 ) : (
-                                                    <View style={[{ width: '100%', height: '100%', backgroundColor: colors.border, justifyContent: 'center', alignItems: 'center' }]}>
+                                                    <View
+                                                        style={[
+                                                            {
+                                                                width: '100%',
+                                                                height: '100%',
+                                                                backgroundColor: colors.border,
+                                                                justifyContent: 'center',
+                                                                alignItems: 'center',
+                                                            },
+                                                        ]}
+                                                    >
                                                         <Icon name="videocam" size={40} color={colors.textSecondary} />
                                                     </View>
                                                 )}
@@ -521,12 +622,13 @@ export default function ProfileScreen() {
                             </Text>
                         )
                     )}
+
                     {activeTab === 'saved' && (
                         isLoadingSaved ? (
                             <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 40 }} />
                         ) : savedItems.length > 0 ? (
                             <View>
-                                {savedItems.map((item) => {
+                                {savedItems.map(item => {
                                     if (item.type === 'scribe') {
                                         // Transform saved item to Scribe format
                                         const scribe: Scribe = {
@@ -547,9 +649,15 @@ export default function ProfileScreen() {
                                             is_disliked: false,
                                             is_saved: true,
                                         };
-                                        return <ScribeCard key={`scribe-${item.id}`} scribe={scribe} onSaveToggle={handleScribeSaveToggle} />;
+                                        return (
+                                            <ScribeCard
+                                                key={`scribe-${item.id}`}
+                                                scribe={scribe}
+                                                onSaveToggle={handleScribeSaveToggle}
+                                            />
+                                        );
                                     } else if (item.type === 'omzo') {
-                                        // Display omzo in scribe card format with interactive save
+                                        // Inline component for saved omzo with local unsave interaction
                                         const SavedOmzoCard = () => {
                                             const [localIsSaved, setLocalIsSaved] = useState(true);
 
@@ -568,16 +676,21 @@ export default function ProfileScreen() {
                                                 }
                                             };
 
-                                            const hasValidAvatar = item.user?.profile_picture_url &&
+                                            const hasValidAvatar =
+                                                item.user?.profile_picture_url &&
                                                 item.user.profile_picture_url.startsWith('http');
-                                            const hasValidVideo = item.video_url && item.video_url.startsWith('http');
+                                            const hasValidVideo =
+                                                item.video_url && item.video_url.startsWith('http');
 
                                             return (
                                                 <View
-                                                    style={[styles.scribeCard, {
-                                                        backgroundColor: colors.surface,
-                                                        borderColor: colors.border
-                                                    }]}
+                                                    style={[
+                                                        styles.scribeCard,
+                                                        {
+                                                            backgroundColor: colors.surface,
+                                                            borderColor: colors.border,
+                                                        },
+                                                    ]}
                                                 >
                                                     <View style={styles.scribeHeader}>
                                                         <View style={styles.scribeUserInfo}>
@@ -587,11 +700,16 @@ export default function ProfileScreen() {
                                                                     style={styles.scribeAvatar}
                                                                 />
                                                             ) : (
-                                                                <View style={[styles.scribeAvatar, {
-                                                                    backgroundColor: colors.primary,
-                                                                    justifyContent: 'center',
-                                                                    alignItems: 'center'
-                                                                }]}>
+                                                                <View
+                                                                    style={[
+                                                                        styles.scribeAvatar,
+                                                                        {
+                                                                            backgroundColor: colors.primary,
+                                                                            justifyContent: 'center',
+                                                                            alignItems: 'center',
+                                                                        },
+                                                                    ]}
+                                                                >
                                                                     <Text style={styles.scribeAvatarText}>
                                                                         {item.user?.username?.[0]?.toUpperCase() || 'O'}
                                                                     </Text>
@@ -603,7 +721,11 @@ export default function ProfileScreen() {
                                                                         {item.user?.full_name || item.user?.username || 'Unknown'}
                                                                     </Text>
                                                                     {item.user?.is_verified && (
-                                                                        <Icon name="checkmark-circle" size={14} color={colors.primary} />
+                                                                        <Icon
+                                                                            name="checkmark-circle"
+                                                                            size={14}
+                                                                            color={colors.primary}
+                                                                        />
                                                                     )}
                                                                 </View>
                                                                 <Text style={[styles.scribeTimestamp, { color: colors.textSecondary }]}>
@@ -612,7 +734,11 @@ export default function ProfileScreen() {
                                                             </View>
                                                         </View>
                                                         <TouchableOpacity>
-                                                            <Icon name="ellipsis-horizontal" size={20} color={colors.textSecondary} />
+                                                            <Icon
+                                                                name="ellipsis-horizontal"
+                                                                size={20}
+                                                                color={colors.textSecondary}
+                                                            />
                                                         </TouchableOpacity>
                                                     </View>
 
@@ -626,7 +752,6 @@ export default function ProfileScreen() {
                                                         <TouchableOpacity
                                                             style={styles.scribeImageContainer}
                                                             onPress={() => {
-                                                                // Navigate to OmzoViewer with transformed data
                                                                 const transformedOmzo = {
                                                                     id: item.id,
                                                                     user: item.user,
@@ -693,9 +818,12 @@ export default function ProfileScreen() {
                                                             <Icon name="share-social-outline" size={20} color={colors.textSecondary} />
                                                         </View>
                                                         <View style={{ flex: 1 }} />
-                                                        <TouchableOpacity style={styles.scribeActionButton} onPress={handleUnsave}>
+                                                        <TouchableOpacity
+                                                            style={styles.scribeActionButton}
+                                                            onPress={handleUnsave}
+                                                        >
                                                             <Icon
-                                                                name={localIsSaved ? "bookmark" : "bookmark-outline"}
+                                                                name={localIsSaved ? 'bookmark' : 'bookmark-outline'}
                                                                 size={20}
                                                                 color={localIsSaved ? colors.primary : colors.textSecondary}
                                                             />
@@ -704,7 +832,6 @@ export default function ProfileScreen() {
                                                 </View>
                                             );
                                         };
-
                                         return <SavedOmzoCard key={`omzo-${item.id}`} />;
                                     }
                                     return null;
@@ -774,7 +901,7 @@ const styles = StyleSheet.create({
     profileImage: {
         width: 80,
         height: 80,
-        borderRadius: 12,
+        borderRadius: 40,
     },
     profileImagePlaceholder: {
         justifyContent: 'center',
@@ -788,98 +915,90 @@ const styles = StyleSheet.create({
     profileActions: {
         marginBottom: 8,
     },
-    userInfoSection: {
-        paddingHorizontal: 20,
-        paddingTop: 12,
-        paddingBottom: 20,
-    },
-    fullNameText: {
-        fontSize: 22,
-        fontWeight: '800',
-        marginBottom: 2,
-    },
-    usernameText: {
-        fontSize: 15,
-        marginBottom: 12,
-    },
-    bioText: {
-        fontSize: 15,
-        lineHeight: 22,
-        marginBottom: 16,
-    },
-    locationJoinedRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 20,
-    },
-    infoItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-    },
-    infoText: {
-        fontSize: 14,
-    },
-    newStatsRow: {
-        flexDirection: 'row',
-        gap: 16,
-    },
-    newStatItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-    },
-    newStatValue: {
-        fontSize: 16,
-        fontWeight: '800',
-    },
-    newStatLabel: {
-        fontSize: 14,
-    },
     buttonRow: {
         flexDirection: 'row',
+        alignItems: 'center',
         gap: 8,
     },
     editButton: {
         paddingHorizontal: 16,
-        height: 38,
+        paddingVertical: 8,
         borderRadius: 20,
-        justifyContent: 'center',
-        alignItems: 'center',
     },
     editButtonText: {
         fontSize: 14,
-        fontWeight: '700',
+        fontWeight: '600',
     },
     shareButton: {
         paddingHorizontal: 16,
-        height: 38,
+        paddingVertical: 8,
         borderRadius: 20,
-        justifyContent: 'center',
-        alignItems: 'center',
     },
     shareButtonText: {
         fontSize: 14,
-        fontWeight: '700',
+        fontWeight: '600',
     },
     followButton: {
-        paddingHorizontal: 16,
-        height: 38,
+        paddingHorizontal: 20,
+        paddingVertical: 8,
         borderRadius: 20,
-        justifyContent: 'center',
-        alignItems: 'center',
-        minWidth: 100,
     },
     followButtonText: {
         fontSize: 14,
-        fontWeight: '700',
+        fontWeight: '600',
     },
     iconButton: {
-        width: 38,
-        height: 38,
-        borderRadius: 19,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
         justifyContent: 'center',
         alignItems: 'center',
+    },
+    userInfoSection: {
+        paddingHorizontal: 16,
+        paddingTop: 12,
+        paddingBottom: 16,
+    },
+    fullNameText: {
+        fontSize: 18,
+        fontWeight: '700',
+    },
+    usernameText: {
+        fontSize: 14,
+        marginTop: 2,
+    },
+    bioText: {
+        fontSize: 14,
+        lineHeight: 20,
+        marginTop: 8,
+    },
+    locationJoinedRow: {
+        flexDirection: 'row',
+        marginTop: 8,
+    },
+    infoItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    infoText: {
+        fontSize: 13,
+    },
+    newStatsRow: {
+        flexDirection: 'row',
+        marginTop: 12,
+        gap: 20,
+    },
+    newStatItem: {
+        alignItems: 'center',
+    },
+    newStatValue: {
+        fontSize: 16,
+        fontWeight: '700',
+    },
+    newStatLabel: {
+        fontSize: 12,
+        marginTop: 2,
     },
     tabBar: {
         flexDirection: 'row',
@@ -888,43 +1007,50 @@ const styles = StyleSheet.create({
     tab: {
         flex: 1,
         flexDirection: 'row',
-        height: 50,
-        justifyContent: 'center',
         alignItems: 'center',
-        gap: 8,
+        justifyContent: 'center',
+        paddingVertical: 12,
+        gap: 6,
+        borderBottomWidth: 2,
+        borderBottomColor: 'transparent',
     },
     tabLabel: {
-        fontSize: 15,
+        fontSize: 13,
         fontWeight: '600',
     },
     content: {
-        paddingVertical: 10,
+        paddingBottom: 80,
     },
     emptyText: {
-        fontSize: 16,
-        marginTop: 40,
         textAlign: 'center',
+        marginTop: 40,
+        fontSize: 15,
     },
     omzosGrid: {
         flexDirection: 'row',
         flexWrap: 'wrap',
-        width: '100%',
+        padding: 1,
     },
     omzoThumbnail: {
         width: '33.33%',
         aspectRatio: 9 / 16,
-        position: 'relative',
         padding: 1,
+        position: 'relative',
     },
     omzoThumbnailImage: {
         width: '100%',
         height: '100%',
-        backgroundColor: '#000',
+        backgroundColor: '#111',
+    },
+    savedBadge: {
+        position: 'absolute',
+        top: 6,
+        right: 6,
     },
     omzoInfo: {
         position: 'absolute',
-        bottom: 8,
-        left: 8,
+        bottom: 6,
+        left: 6,
         flexDirection: 'row',
         alignItems: 'center',
         gap: 4,
@@ -933,41 +1059,31 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         fontSize: 12,
         fontWeight: '600',
-        textShadowColor: 'rgba(0, 0, 0, 0.75)',
-        textShadowOffset: { width: 0, height: 1 },
-        textShadowRadius: 3,
     },
-    savedBadge: {
-        position: 'absolute',
-        top: 8,
-        right: 8,
-        backgroundColor: 'rgba(0, 0, 0, 0.6)',
-        borderRadius: 12,
-        padding: 4,
+    errorText: {
+        fontSize: 18,
     },
-    // Scribe card styles (reused for saved omzos)
+    // Saved omzo card styles
     scribeCard: {
-        marginBottom: 12,
-        borderRadius: 12,
-        borderWidth: 1,
-        padding: 12,
+        borderBottomWidth: 1,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
     },
     scribeHeader: {
         flexDirection: 'row',
+        alignItems: 'center',
         justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        marginBottom: 12,
+        marginBottom: 10,
     },
     scribeUserInfo: {
         flexDirection: 'row',
         alignItems: 'center',
-        flex: 1,
+        gap: 10,
     },
     scribeAvatar: {
         width: 40,
         height: 40,
         borderRadius: 20,
-        marginRight: 10,
     },
     scribeAvatarText: {
         color: '#FFFFFF',
@@ -1030,9 +1146,6 @@ const styles = StyleSheet.create({
     scribeActionText: {
         fontSize: 13,
         marginLeft: 4,
-    },
-    errorText: {
-        fontSize: 18,
     },
     headerIconWrapper: {
         marginLeft: 15,

@@ -43,9 +43,16 @@ export default function ChatListScreen() {
 
     const handleRefresh = async () => {
         setIsRefreshing(true);
+        console.log('🔄 Force refreshing chats...');
         await loadChats();
         await updateUnreadCounts();
         setIsRefreshing(false);
+    };
+
+    const handleForceRefresh = async () => {
+        console.log('🔄 Force debugging refresh...');
+        // Clear any cached data and force reload
+        await handleRefresh();
     };
 
     const handleChatPress = (chat: Chat) => {
@@ -106,6 +113,17 @@ export default function ChatListScreen() {
 
         const isOnline = otherUser?.is_online || false;
 
+        // Debug logging at the top level
+        console.log('🔍 Chat Item Debug:', {
+            chatId: item.id,
+            chatName: chatName,
+            last_message: item.last_message,
+            one_time: item.last_message?.one_time,
+            consumed_at: item.last_message?.consumed_at,
+            content: item.last_message?.content,
+            unread_count: item.unread_count
+        });
+
         return (
             <TouchableOpacity
                 style={[styles.chatItem, { backgroundColor: '#FFFFFF' }]}
@@ -136,11 +154,53 @@ export default function ChatListScreen() {
                             numberOfLines={1}
                         >
                             {item.last_message ? (
-                                item.last_message.one_time ? (
-                                    item.last_message.consumed_at ? '🔒 Opened' : '🔒 One-time view'
-                                ) : (
-                                    item.last_message.content || 'Media message'
-                                )
+                                (() => {
+                                    console.log('🔍 Message Content Analysis:', {
+                                        chatId: item.id,
+                                        content: item.last_message.content,
+                                        contentLength: item.last_message.content?.length,
+                                        one_time: item.last_message.one_time,
+                                        consumed_at: item.last_message.consumed_at
+                                    });
+
+                                    // Check if this is a one-time message
+                                    const isOneTime = item.last_message.one_time === true;
+
+                                    // Defensive checks for short messages that might be one-time
+                                    let isProbablyOneTime = isOneTime;
+                                    const content = item.last_message.content;
+
+                                    if (content && !isOneTime) {
+                                        // Check for very short content (2-3 characters)
+                                        if (content.length <= 3) {
+                                            isProbablyOneTime = true;
+                                            console.log('🔒 Short content detected:', content);
+                                        }
+                                        // Check for 2-3 letter patterns
+                                        else if (content.match(/^[a-z]{2,3}$/i)) {
+                                            isProbablyOneTime = true;
+                                            console.log('🔒 Letter pattern detected:', content);
+                                        }
+                                        // Check for lock emoji
+                                        else if (content.includes('🔒')) {
+                                            isProbablyOneTime = true;
+                                            console.log('🔒 Lock emoji detected:', content);
+                                        }
+                                    }
+
+                                    if (isProbablyOneTime) {
+                                        console.log('🔒 HIDING ONE-TIME MESSAGE:', {
+                                            originalContent: content,
+                                            consumed: !!item.last_message.consumed_at,
+                                            displayText: item.last_message.consumed_at ? '🔒 Opened' : '🔒 One-time view'
+                                        });
+
+                                        return item.last_message.consumed_at ? '🔒 Opened' : '🔒 One-time view';
+                                    }
+
+                                    console.log('✅ Showing normal message:', content);
+                                    return content || 'Media message';
+                                })()
                             ) : 'No messages yet'}
                         </Text>
                         {item.unread_count > 0 && (
@@ -160,6 +220,9 @@ export default function ChatListScreen() {
             <View style={[styles.header, { backgroundColor: '#FFFFFF' }]}>
                 <Text style={[styles.headerTitle, { color: '#1C1C1E' }]}>Odnix</Text>
                 <View style={styles.headerIcons}>
+                    <TouchableOpacity style={styles.iconButton} onPress={handleForceRefresh}>
+                        <Icon name="refresh-outline" size={24} color="#1C1C1E" />
+                    </TouchableOpacity>
                     <TouchableOpacity style={styles.iconButton}>
                         <Icon name="search-outline" size={24} color="#1C1C1E" />
                     </TouchableOpacity>

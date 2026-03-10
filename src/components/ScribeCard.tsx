@@ -5,12 +5,15 @@ import {
     Image,
     TouchableOpacity,
     StyleSheet,
+    ScrollView,
 } from 'react-native';
+import { WebView } from 'react-native-webview';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { formatDistanceToNow } from 'date-fns';
 import { useThemeStore } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useFollowStore } from '@/stores/followStore';
 import api from '@/services/api';
 import type { Scribe } from '@/types';
 
@@ -68,15 +71,68 @@ function renderContent(content: string, textColor: string) {
     );
 }
 
+const ScribeImage = ({ uri }: { uri: string }) => {
+    const [aspectRatio, setAspectRatio] = useState<number>(1.5); // Default landscape ratio
+
+    React.useEffect(() => {
+        if (!uri) return;
+        Image.getSize(
+            uri,
+            (width, height) => {
+                if (width && height && height > 0) {
+                    setAspectRatio(Math.max(0.5, Math.min(width / height, 2.5))); // Bound the aspect ratio to avoid excessively tall/wide images
+                }
+            },
+            () => {
+                // Ignore error, fallback to default
+            }
+        );
+    }, [uri]);
+
+    return (
+        <Image
+            source={{ uri }}
+            style={[styles.image, { height: undefined, aspectRatio }]}
+            resizeMode="cover"
+        />
+    );
+};
+
 export default function ScribeCard({ scribe, onSaveToggle, onPress }: ScribeCardProps) {
     const navigation = useNavigation();
     const { colors } = useThemeStore();
     const { user: currentUser } = useAuthStore();
     const [isLiked, setIsLiked] = useState(scribe.is_liked || false);
     const [isSaved, setIsSaved] = useState(scribe.is_saved || false);
-    const [isFollowing, setIsFollowing] = useState((scribe.user as any)?.is_following || (scribe.user as any)?.isFollowing || false);
     const [likeCount, setLikeCount] = useState(scribe.like_count || 0);
     const [repostCount, setRepostCount] = useState(scribe.repost_count || 0);
+
+    // Read follow state from global store — updates instantly when any screen toggles follow
+    const scribeAuthorUsername = scribe.user?.username || '';
+    const { followStates, setFollowState } = useFollowStore();
+    const storeValue = followStates[scribeAuthorUsername];
+    // Fallback chain: store > scribe.is_following > scribe.user.is_following > false
+    const isFollowing = storeValue !== undefined
+        ? storeValue
+        : ((scribe as any).is_following ?? (scribe.user as any)?.is_following ?? (scribe.user as any)?.isFollowing ?? false);
+
+    // Seed store when prop provides a value that store doesn't have yet
+    React.useEffect(() => {
+        if (storeValue === undefined && scribeAuthorUsername) {
+            const propValue =
+                (scribe as any).is_following ??
+                (scribe.user as any)?.is_following ??
+                (scribe.user as any)?.isFollowing;
+            if (propValue !== undefined) {
+                setFollowState(scribeAuthorUsername, propValue);
+            }
+        }
+    }, [
+        scribeAuthorUsername,
+        (scribe as any).is_following,
+        (scribe.user as any)?.is_following,
+        (scribe.user as any)?.isFollowing,
+    ]);
 
     const isOwnScribe = currentUser?.username === scribe.user?.username;
 
@@ -117,30 +173,71 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress }: ScribeCard
     };
 
     const handleFollow = async () => {
-        if (!scribe.user?.username) return;
+        if (!scribeAuthorUsername) return;
         const prev = isFollowing;
-        setIsFollowing(!isFollowing);
+        const newVal = !isFollowing;
+
+        // Optimistic update in global store — all subscribers update instantly
+        setFollowState(scribeAuthorUsername, newVal);
+
         try {
-            const response = await api.toggleFollow(scribe.user.username);
+            const response = await api.toggleFollow(scribeAuthorUsername);
             if (response.success) {
-                setIsFollowing((response as any).is_following ?? !prev);
+                const nowFollowing = (response as any).is_following ?? newVal;
+                setFollowState(scribeAuthorUsername, nowFollowing);
+
+                // Update MY following_count in authStore
+                const { user: me, updateUser } = useAuthStore.getState();
+                if (me) {
+                    updateUser({
+                        ...me,
+                        following_count: nowFollowing
+                            ? me.following_count + 1
+                            : Math.max(0, me.following_count - 1),
+                    });
+                }
             } else {
-                setIsFollowing(prev);
+                setFollowState(scribeAuthorUsername, prev); // Revert
             }
         } catch {
-            setIsFollowing(prev);
+            setFollowState(scribeAuthorUsername, prev); // Revert
         }
     };
 
     const handleProfilePress = () => {
         if (!scribe.user?.username) return;
-        navigation.navigate('Profile' as never, { username: scribe.user.username } as never);
+        (navigation as any).navigate('Profile', { username: scribe.user.username });
     };
 
     const avatarUri = scribe.user?.profile_picture_url || (scribe.user as any)?.avatar || '';
     const imageUri = scribe.media_url || scribe.image_url || (scribe as any).mediaUrl || '';
     const hasValidAvatar = avatarUri && avatarUri !== 'null' && avatarUri.startsWith('http');
-    const hasValidImage = imageUri && imageUri !== 'null' && imageUri.trim().length > 0 && imageUri.startsWith('http');
+    const hasValidImage = !!imageUri && imageUri !== '' && !imageUri.endsWith('null') && !imageUri.endsWith('undefined');
+
+    const [activeTab, setActiveTab] = useState<'preview' | 'code'>('preview');
+
+    const generateHtmlContent = () => {
+        return `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+                <style>
+                    body { margin: 0; padding: 0; }
+                    ${scribe.code_css || ''}
+                </style>
+            </head>
+            <body>
+                ${scribe.code_html || ''}
+                <script>
+                    ${scribe.code_js || ''}
+                </script>
+            </body>
+            </html>
+        `;
+    };
+
+    const hasCode = !!(scribe.code_html || scribe.code_css || scribe.code_js);
 
     const createdAt = scribe.timestamp || (scribe as any).createdAt || (scribe as any).created_at;
     const relativeTime = formatRelativeTime(createdAt);
@@ -207,13 +304,81 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress }: ScribeCard
                 {/* Content */}
                 {scribe.content ? renderContent(scribe.content, '#111827') : null}
 
+                {/* Code snippets & Live Preview */}
+                {hasCode && (
+                    <View style={styles.codeContainer}>
+                        <View style={styles.tabContainer}>
+                            <TouchableOpacity
+                                style={[styles.tabButton, activeTab === 'preview' && styles.tabButtonActive]}
+                                onPress={() => setActiveTab('preview')}
+                            >
+                                <Icon name="play" size={14} color={activeTab === 'preview' ? '#3B82F6' : '#6B7280'} />
+                                <Text style={[styles.tabText, activeTab === 'preview' && styles.tabTextActive]}>Live Preview</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.tabButton, activeTab === 'code' && styles.tabButtonActive]}
+                                onPress={() => setActiveTab('code')}
+                            >
+                                <Icon name="code" size={14} color={activeTab === 'code' ? '#3B82F6' : '#6B7280'} />
+                                <Text style={[styles.tabText, activeTab === 'code' && styles.tabTextActive]}>Source Code</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        {activeTab === 'preview' ? (
+                            <View style={styles.webviewContainer}>
+                                <WebView
+                                    source={{ html: generateHtmlContent() }}
+                                    style={styles.webview}
+                                    scrollEnabled={false}
+                                    showsVerticalScrollIndicator={false}
+                                    showsHorizontalScrollIndicator={false}
+                                />
+                            </View>
+                        ) : (
+                            <View>
+                                {scribe.code_html ? (
+                                    <View style={styles.codeBlock}>
+                                        <View style={styles.codeHeader}>
+                                            <Text style={styles.codeLang}>HTML</Text>
+                                            <Icon name="code-slash" size={14} color="#3B82F6" />
+                                        </View>
+                                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.codeScroll}>
+                                            <Text style={styles.codeText}>{scribe.code_html.trimEnd()}</Text>
+                                        </ScrollView>
+                                    </View>
+                                ) : null}
+
+                                {scribe.code_css ? (
+                                    <View style={styles.codeBlock}>
+                                        <View style={styles.codeHeader}>
+                                            <Text style={styles.codeLang}>CSS</Text>
+                                            <Icon name="color-palette-outline" size={14} color="#10B981" />
+                                        </View>
+                                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.codeScroll}>
+                                            <Text style={styles.codeText}>{scribe.code_css.trimEnd()}</Text>
+                                        </ScrollView>
+                                    </View>
+                                ) : null}
+
+                                {scribe.code_js ? (
+                                    <View style={styles.codeBlock}>
+                                        <View style={styles.codeHeader}>
+                                            <Text style={styles.codeLang}>JS</Text>
+                                            <Icon name="logo-javascript" size={14} color="#F59E0B" />
+                                        </View>
+                                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.codeScroll}>
+                                            <Text style={styles.codeText}>{scribe.code_js.trimEnd()}</Text>
+                                        </ScrollView>
+                                    </View>
+                                ) : null}
+                            </View>
+                        )}
+                    </View>
+                )}
+
                 {/* Image */}
                 {hasValidImage && (
-                    <Image
-                        source={{ uri: imageUri }}
-                        style={styles.image}
-                        resizeMode="cover"
-                    />
+                    <ScribeImage uri={imageUri} />
                 )}
             </TouchableOpacity>
 
@@ -363,9 +528,87 @@ const styles = StyleSheet.create({
     },
     image: {
         width: '100%',
-        height: 200,
         borderRadius: 12,
         marginBottom: 12,
+        backgroundColor: '#F3F4F6', // show light grey background while loading
+    },
+    codeContainer: {
+        marginBottom: 12,
+        gap: 8,
+    },
+    tabContainer: {
+        flexDirection: 'row',
+        backgroundColor: '#F3F4F6',
+        borderRadius: 8,
+        padding: 4,
+        marginBottom: 4,
+    },
+    tabButton: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 8,
+        borderRadius: 6,
+        gap: 6,
+    },
+    tabButtonActive: {
+        backgroundColor: '#FFFFFF',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+        elevation: 2,
+    },
+    tabText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#6B7280',
+    },
+    tabTextActive: {
+        color: '#3B82F6',
+    },
+    webviewContainer: {
+        height: 400, // Increased height for better visibility
+        backgroundColor: '#FFFFFF',
+        borderRadius: 8,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+    },
+    webview: {
+        flex: 1,
+        backgroundColor: 'transparent',
+    },
+    codeBlock: {
+        backgroundColor: '#F3F4F6',
+        borderRadius: 8,
+        overflow: 'hidden',
+        marginBottom: 8,
+    },
+    codeHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        backgroundColor: '#E5E7EB',
+        borderBottomWidth: 1,
+        borderBottomColor: '#D1D5DB',
+    },
+    codeLang: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#374151',
+    },
+    codeScroll: {
+        padding: 12,
+        maxHeight: 400, // Let source code box expand up to 400px
+    },
+    codeText: {
+        fontFamily: 'monospace',
+        fontSize: 13,
+        color: '#1F2937',
     },
     actions: {
         flexDirection: 'row',

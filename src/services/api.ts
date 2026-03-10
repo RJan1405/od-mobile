@@ -524,6 +524,15 @@ class ApiService {
     }
 
     // ==================== SOCIAL GRAPH ====================
+    async getFollowStates(usernames: string[]): Promise<ApiResponse<Record<string, { is_following: boolean; is_blocked?: boolean; can_follow?: boolean }>>> {
+        try {
+            const response = await this.api.post('/api/follow-states/', { usernames });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
     async toggleFollow(username: string): Promise<ApiResponse> {
         try {
             const response = await this.api.post('/api/toggle-follow/', { username });

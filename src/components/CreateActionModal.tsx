@@ -28,7 +28,7 @@ export default function CreateActionModal({ visible, onClose }: CreateActionModa
 
     const handleCreateOmzo = () => {
         onClose();
-        navigation.navigate('Upload'); // Assuming Upload is for Omzo
+        navigation.navigate('CreateOmzo');
     };
 
     return (

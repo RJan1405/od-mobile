@@ -76,7 +76,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
             if (userData) {
                 const user = JSON.parse(userData);
-                
+
                 // Trust the stored user data (session-based auth with mobile app)
                 set({
                     user: user,
@@ -84,10 +84,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
                     isLoading: false,
                 });
             } else {
-                set({ 
+                set({
                     user: null,
                     isAuthenticated: false,
-                    isLoading: false 
+                    isLoading: false
                 });
             }
         } catch (error) {

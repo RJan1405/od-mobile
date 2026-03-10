@@ -85,5 +85,6 @@ export function transformOmzoData(omzo: any): any {
         is_disliked: omzo.is_disliked || false,
         is_muted: omzo.is_muted || false,
         is_saved: omzo.is_saved || false,
+        is_following: omzo.is_following !== undefined ? omzo.is_following : (omzo.user?.isFollowing || false),
     };
 }

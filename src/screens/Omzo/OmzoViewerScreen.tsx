@@ -14,6 +14,7 @@ import Video from 'react-native-video';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useFollowStore } from '@/stores/followStore';
 import api from '@/services/api';
 import OmzoCommentsSheet from '@/components/OmzoCommentsSheet';
 import OmzoActionsSheet from '@/components/OmzoActionsSheet';
@@ -50,11 +51,25 @@ export default function OmzoViewerScreen() {
     const [commentCount, setCommentCount] = useState(transformedOmzo?.comment_count || 0);
     const [isSaved, setIsSaved] = useState(transformedOmzo?.is_saved || false);
     const [shareCount] = useState(45); // Placeholder for share count
-    const [isFollowing, setIsFollowing] = useState(false);
     const [paused, setPaused] = useState(false);
     const [isMuted, setIsMuted] = useState(globalMuteState);
     const [showComments, setShowComments] = useState(false);
     const [showActions, setShowActions] = useState(false);
+
+    // Read follow state from global store — updates instantly when any screen toggles follow
+    const omzoAuthorUsername = omzo?.user?.username || '';
+    const { followStates, setFollowState } = useFollowStore();
+    const storeFollowValue = followStates[omzoAuthorUsername];
+    const isFollowing = storeFollowValue !== undefined
+        ? storeFollowValue
+        : (transformedOmzo?.is_following || false);
+
+    // Seed store from props when not yet in store
+    React.useEffect(() => {
+        if (omzoAuthorUsername && storeFollowValue === undefined && transformedOmzo?.is_following !== undefined) {
+            setFollowState(omzoAuthorUsername, transformedOmzo.is_following);
+        }
+    }, [omzoAuthorUsername]);
 
     // Sync state with omzo changes
     useEffect(() => {
@@ -113,21 +128,35 @@ export default function OmzoViewerScreen() {
     };
 
     const handleFollow = async () => {
-        if (!omzo?.user?.username) return;
+        if (!omzoAuthorUsername) return;
 
         const prevFollowing = isFollowing;
-        setIsFollowing(!isFollowing);
+        const newFollowing = !isFollowing;
+
+        // Optimistic update in global store — all subscribers update instantly
+        setFollowState(omzoAuthorUsername, newFollowing);
 
         try {
-            const response = await api.toggleFollow(omzo.user.username);
+            const response = await api.toggleFollow(omzoAuthorUsername);
             if (response.success) {
-                setIsFollowing((response as any).is_following);
+                const nowFollowing = (response as any).is_following ?? newFollowing;
+                setFollowState(omzoAuthorUsername, nowFollowing);
+
+                // Update MY following_count in authStore
+                const { user: me, updateUser } = useAuthStore.getState();
+                if (me) {
+                    updateUser({
+                        ...me,
+                        following_count: nowFollowing
+                            ? me.following_count + 1
+                            : Math.max(0, me.following_count - 1),
+                    });
+                }
             } else {
-                setIsFollowing(prevFollowing);
+                setFollowState(omzoAuthorUsername, prevFollowing); // Revert
             }
-        } catch (error) {
-            console.error('Error toggling follow:', error);
-            setIsFollowing(prevFollowing);
+        } catch {
+            setFollowState(omzoAuthorUsername, prevFollowing); // Revert
         }
     };
 

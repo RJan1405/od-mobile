@@ -15,6 +15,7 @@ import ChatListScreen from '@/screens/Chat/ChatListScreen';
 import ChatScreen from '@/screens/Chat/ChatScreen';
 import OmzoScreen from '@/screens/Omzo/OmzoScreen';
 import OmzoViewerScreen from '@/screens/Omzo/OmzoViewerScreen';
+import CreateOmzoScreen from '@/screens/Omzo/CreateOmzoScreen';
 import ExploreScreen from '@/screens/Explore/ExploreScreen';
 import ProfileScreen from '@/screens/Profile/ProfileScreen';
 import UploadScreen from '@/screens/Upload/UploadScreen';
@@ -33,6 +34,7 @@ export type RootStackParamList = {
     Main: undefined;
     Chat: { chatId: number };
     CreateScribe: undefined;
+    CreateOmzo: undefined;
     CreateStory: undefined;
     StoryView: { userId: number };
     Profile: { username: string };
@@ -223,6 +225,11 @@ export function RootNavigator() {
                             name="CreateScribe"
                             component={CreateScribeScreen}
                             options={{ title: 'Create Post' }}
+                        />
+                        <Stack.Screen
+                            name="CreateOmzo"
+                            component={CreateOmzoScreen}
+                            options={{ title: 'Create Omzo', headerShown: false }}
                         />
                         <Stack.Screen
                             name="CreateStory"

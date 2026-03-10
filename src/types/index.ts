@@ -17,6 +17,7 @@ export interface User {
     follower_count: number;
     following_count: number;
     post_count?: number;
+    is_following?: boolean;
 }
 
 export interface Message {
@@ -79,6 +80,7 @@ export interface Scribe {
     is_disliked?: boolean;
     is_saved?: boolean;
     is_reposted?: boolean;
+    is_following?: boolean;
     original_scribe?: Scribe;
     original_omzo?: Omzo;
     quote_source?: Scribe;

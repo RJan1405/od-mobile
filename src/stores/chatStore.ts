@@ -47,36 +47,58 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 console.log('✅ Loaded', chatsData.length, 'chats');
 
                 // Transform the chat data to match our interface
-                const transformedChats = chatsData.map((chat: any) => ({
-                    id: chat.id,
-                    chat_type: chat.is_group ? 'group' : 'private',
-                    name: chat.name,
-                    description: chat.description,
-                    group_avatar: buildFullUrl(chat.avatar),
-                    participants: chat.other_user ? [{
-                        id: chat.other_user.id,
-                        username: chat.other_user.username,
-                        full_name: chat.other_user.full_name,
-                        profile_picture_url: buildFullUrl(chat.other_user.profile_picture),
-                        is_online: chat.other_user.is_online,
-                        is_verified: chat.other_user.is_verified,
-                    }] : [],
-                    last_message: chat.last_message ? {
-                        id: 0,
-                        content: chat.last_message.content,
-                        timestamp: chat.last_message_time || new Date().toISOString(),
-                        sender: { id: 0 } as any,
-                        chat_id: chat.id,
-                        message_type: 'text',
-                        is_read: false,
-                        is_deleted: false,
-                        is_edited: false,
-                    } : undefined,
-                    unread_count: chat.unread_count || 0,
-                    is_public: false,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                }));
+                const transformedChats = chatsData.map((chat: any) => {
+                    console.log('🔍 Raw chat data from backend:', {
+                        chatId: chat.id,
+                        last_message: chat.last_message,
+                        one_time: chat.last_message?.one_time,
+                        consumed_at: chat.last_message?.consumed_at,
+                        content: chat.last_message?.content,
+                        last_message_time: chat.last_message_time
+                    });
+
+                    const transformedChat = {
+                        id: chat.id,
+                        chat_type: chat.is_group ? 'group' : 'private',
+                        name: chat.name,
+                        description: chat.description,
+                        group_avatar: buildFullUrl(chat.avatar),
+                        participants: chat.other_user ? [{
+                            id: chat.other_user.id,
+                            username: chat.other_user.username,
+                            full_name: chat.other_user.full_name,
+                            profile_picture_url: buildFullUrl(chat.other_user.profile_picture),
+                            is_online: chat.other_user.is_online,
+                            is_verified: chat.other_user.is_verified,
+                        }] : [],
+                        last_message: chat.last_message ? {
+                            id: chat.last_message.id || 0,
+                            chat: chat.id,
+                            content: chat.last_message.content,
+                            timestamp: chat.last_message_time || new Date().toISOString(),
+                            sender: { id: 0 } as any,
+                            message_type: 'text',
+                            is_read: false,
+                            is_deleted: false,
+                            is_edited: false,
+                            one_time: chat.last_message.one_time || false,
+                            consumed_at: chat.last_message.consumed_at,
+                        } : undefined,
+                        unread_count: chat.unread_count || 0,
+                        is_public: false,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
+                    };
+
+                    console.log('📝 Transformed chat:', {
+                        chatId: transformedChat.id,
+                        last_message_one_time: transformedChat.last_message?.one_time,
+                        last_message_content: transformedChat.last_message?.content,
+                        consumed_at: transformedChat.last_message?.consumed_at
+                    });
+
+                    return transformedChat;
+                });
 
                 console.log('📝 Transformed chats:', transformedChats);
                 set({ chats: transformedChats });
