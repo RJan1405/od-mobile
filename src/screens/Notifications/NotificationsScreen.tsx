@@ -9,6 +9,7 @@ import {
     RefreshControl,
     ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '@/stores/themeStore';
@@ -25,17 +26,24 @@ export default function NotificationsScreen() {
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [lastViewedTime, setLastViewedTime] = useState<number>(0);
 
     useEffect(() => {
-        fetchNotifications();
+        // We use the new server-based time key for tracking
+        AsyncStorage.getItem('@notifications_last_viewed_server').then(val => {
+            const previousTime = val ? Number(val) : 0;
+            setLastViewedTime(previousTime);
+            fetchNotifications(previousTime, true);
+        });
 
         // Connect to WebSocket for real-time notifications
         if (user) {
             const cleanup = websocketService.connectToNotifications((event) => {
                 console.log('🔔 Real-time notification received:', event);
 
-                // Refresh notifications on any notification event
-                if (event.type && ['like', 'comment', 'follow', 'story_like', 'story_reply'].includes(event.type)) {
+                // Refresh notifications on any general notification event
+                const ignoredTypes = ['incoming.call', 'new.message', 'missed.call'];
+                if (event.type && !ignoredTypes.includes(event.type)) {
                     fetchNotifications();
                 }
             });
@@ -46,11 +54,26 @@ export default function NotificationsScreen() {
         }
     }, [user]);
 
-    const fetchNotifications = async () => {
+    const fetchNotifications = async (providedTime?: number, isInitialLoad = false) => {
         try {
+            const timeToUse = providedTime !== undefined ? providedTime : lastViewedTime;
             const response = await api.getNotifications();
             if (response.success && response.data) {
-                setNotifications(response.data);
+                const updated = response.data.map((n: Notification) => {
+                    const notifyTime = new Date(n.created_at).getTime();
+                    return {
+                        ...n,
+                        is_read: n.is_read || (!isNaN(notifyTime) && notifyTime <= timeToUse)
+                    };
+                });
+                setNotifications(updated);
+                
+                // On initial load or manual refresh, update the high water mark
+                if (isInitialLoad || providedTime !== undefined) {
+                    const timestamps = response.data.map((n: Notification) => new Date(n.created_at).getTime()).filter((t: number) => !isNaN(t));
+                    const newMaxTime = timestamps.length > 0 ? Math.max(...timestamps) : Date.now();
+                    AsyncStorage.setItem('@notifications_last_viewed_server', newMaxTime.toString()).catch(e => console.error(e));
+                }
             }
         } catch (error) {
             console.error('Error fetching notifications:', error);
@@ -62,7 +85,10 @@ export default function NotificationsScreen() {
 
     const handleRefresh = () => {
         setIsRefreshing(true);
-        fetchNotifications();
+        // During manual refresh, update the time to current and pass true to save the new high watermark
+        const now = Date.now();
+        setLastViewedTime(now);
+        fetchNotifications(now, true);
     };
 
     const handleNotificationPress = async (notification: Notification) => {

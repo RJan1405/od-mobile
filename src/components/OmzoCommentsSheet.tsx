@@ -34,7 +34,7 @@ export default function OmzoCommentsSheet({
     initialCommentCount,
     onCommentAdded,
 }: OmzoCommentsSheetProps) {
-    const { colors } = useThemeStore();
+    const { colors, theme } = useThemeStore();
     const { user } = useAuthStore();
     const [comments, setComments] = useState<OmzoComment[]>([]);
     const [commentText, setCommentText] = useState('');
@@ -84,38 +84,6 @@ export default function OmzoCommentsSheet({
         }
     };
 
-    const renderComment = ({ item }: { item: OmzoComment }) => {
-        const avatarUri = item.user?.profile_picture_url || (item.user as any)?.avatar || '';
-        const hasValidAvatar = avatarUri && avatarUri.startsWith('http');
-
-        return (
-            <View style={styles.commentItem}>
-                {hasValidAvatar ? (
-                    <Image source={{ uri: avatarUri }} style={styles.commentAvatar} />
-                ) : (
-                    <View style={[styles.commentAvatar, { backgroundColor: colors.primary }]}>
-                        <Text style={styles.avatarText}>
-                            {item.user?.username?.[0]?.toUpperCase() || '?'}
-                        </Text>
-                    </View>
-                )}
-                <View style={styles.commentContent}>
-                    <View style={styles.commentHeader}>
-                        <Text style={[styles.commentUsername, { color: colors.text }]}>
-                            {item.user.username}
-                        </Text>
-                        <Text style={[styles.commentTime, { color: colors.textSecondary }]}>
-                            {formatTime(item.created_at)}
-                        </Text>
-                    </View>
-                    <Text style={[styles.commentText, { color: colors.text }]}>
-                        {item.content}
-                    </Text>
-                </View>
-            </View>
-        );
-    };
-
     const formatTime = (timestamp: string) => {
         const date = new Date(timestamp);
         const now = new Date();
@@ -138,16 +106,18 @@ export default function OmzoCommentsSheet({
                 {/* Header */}
                 <View style={[styles.header, { borderBottomColor: colors.border }]}>
                     <View style={styles.swipeIndicator} />
-                    <Text style={[styles.headerTitle, { color: colors.text }]}>
-                        Comments {comments.length > 0 && `(${comments.length})`}
-                    </Text>
-                    <TouchableOpacity
-                        onPress={onClose}
-                        style={styles.closeButton}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                        <Icon name="close" size={24} color={colors.text} />
-                    </TouchableOpacity>
+                    <View style={styles.headerTitleRow}>
+                        <Text style={[styles.headerTitle, { color: colors.text }]}>
+                            {comments.length} comments
+                        </Text>
+                        <TouchableOpacity
+                            onPress={onClose}
+                            style={[styles.closeButton, { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }]}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        >
+                            <Icon name="close" size={18} color={colors.textSecondary} />
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 {/* Comments List */}
@@ -190,7 +160,7 @@ export default function OmzoCommentsSheet({
                                         <View style={styles.commentContent}>
                                             <View style={styles.commentHeader}>
                                                 <Text style={[styles.commentUsername, { color: colors.text }]}>
-                                                    {item.user.username}
+                                                    @{item.user.username}
                                                 </Text>
                                                 <Text style={[styles.commentTime, { color: colors.textSecondary }]}>
                                                     {formatTime(item.created_at)}
@@ -199,6 +169,17 @@ export default function OmzoCommentsSheet({
                                             <Text style={[styles.commentText, { color: colors.text }]}>
                                                 {item.content}
                                             </Text>
+                                            <View style={styles.commentActions}>
+                                                <TouchableOpacity style={styles.actionButton} activeOpacity={0.7}>
+                                                    <Icon name={item.is_liked ? "heart" : "heart-outline"} size={16} color={item.is_liked ? "#EF4444" : colors.textSecondary} />
+                                                    <Text style={[styles.actionText, { color: colors.textSecondary }]}>
+                                                        {item.like_count || 0}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity style={styles.actionButton} activeOpacity={0.7}>
+                                                    <Text style={[styles.actionText, { color: colors.textSecondary }]}>Reply</Text>
+                                                </TouchableOpacity>
+                                            </View>
                                         </View>
                                     </View>
                                 );
@@ -264,29 +245,37 @@ const styles = StyleSheet.create({
     container: {
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
-        height: '50%',
+        height: '75%', // Taller to look more like image
     },
     header: {
-        alignItems: 'center',
-        paddingVertical: 12,
+        paddingTop: 10,
+        paddingBottom: 16,
         borderBottomWidth: 1,
-        position: 'relative',
-    },
-    closeButton: {
-        position: 'absolute',
-        right: 16,
-        top: 16,
     },
     swipeIndicator: {
+        alignSelf: 'center',
         width: 40,
         height: 4,
-        backgroundColor: '#CCCCCC',
+        backgroundColor: '#E5E7EB',
         borderRadius: 2,
-        marginBottom: 12,
+        marginBottom: 16,
+    },
+    headerTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 20,
     },
     headerTitle: {
         fontSize: 18,
-        fontWeight: '600',
+        fontWeight: '700',
+    },
+    closeButton: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     commentsContainer: {
         flex: 1,
@@ -343,16 +332,31 @@ const styles = StyleSheet.create({
         marginBottom: 4,
     },
     commentUsername: {
-        fontSize: 14,
-        fontWeight: '600',
+        fontSize: 15,
+        fontWeight: '700',
         marginRight: 8,
     },
     commentTime: {
-        fontSize: 12,
+        fontSize: 13,
     },
     commentText: {
-        fontSize: 14,
-        lineHeight: 20,
+        fontSize: 15,
+        lineHeight: 22,
+        marginBottom: 10,
+    },
+    commentActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    actionButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginRight: 16,
+    },
+    actionText: {
+        fontSize: 13,
+        marginLeft: 4,
+        fontWeight: '600',
     },
     inputContainer: {
         flexDirection: 'row',

@@ -11,6 +11,7 @@ import {
     TextInput,
     Platform,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useAuthStore } from '@/stores/authStore';
@@ -64,8 +65,9 @@ export default function HomeScreen() {
         if (user) {
             cleanupNotify = websocketService.connectToNotifications((event) => {
                 console.log('🔔 Real-time notification received in HomeScreen:', event);
-                // Refresh notifications on any notification event
-                if (event.type && ['like', 'comment', 'follow', 'story_like', 'story_reply'].includes(event.type)) {
+                // Refresh notifications on any general notification event
+                const ignoredTypes = ['incoming.call', 'new.message', 'missed.call'];
+                if (event.type && !ignoredTypes.includes(event.type)) {
                     fetchNotifications();
                 }
             });
@@ -174,7 +176,17 @@ export default function HomeScreen() {
         try {
             const response = await api.getNotifications();
             if (response.success && response.data) {
-                setNotifications(response.data);
+                const val = await AsyncStorage.getItem('@notifications_last_viewed_server');
+                const viewedTime = val ? Number(val) : 0;
+                
+                const updated = response.data.map((n: Notification) => {
+                    const notifyTime = new Date(n.created_at).getTime();
+                    return {
+                        ...n,
+                        is_read: n.is_read || (!isNaN(notifyTime) && notifyTime <= viewedTime)
+                    };
+                });
+                setNotifications(updated);
             }
         } catch (error) {
             console.error('Error fetching notifications:', error);

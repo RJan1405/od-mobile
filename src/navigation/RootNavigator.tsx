@@ -254,7 +254,7 @@ export function RootNavigator() {
                         <Stack.Screen
                             name="Notifications"
                             component={NotificationsScreen}
-                            options={{ title: 'Notifications' }}
+                            options={{ headerShown: false }}
                         />
                         <Stack.Screen
                             name="Settings"
