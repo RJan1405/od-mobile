@@ -8,6 +8,7 @@ import {
     StatusBar,
     Platform,
     Image,
+    Alert,
 } from 'react-native';
 import { useFocusEffect, useRoute, useNavigation } from '@react-navigation/native';
 import Video from 'react-native-video';
@@ -15,7 +16,9 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useFollowStore } from '@/stores/followStore';
+import { useInteractionStore } from '@/stores/interactionStore';
 import api from '@/services/api';
+import { useRepostStore } from '@/stores/repostStore';
 import OmzoCommentsSheet from '@/components/OmzoCommentsSheet';
 import OmzoActionsSheet from '@/components/OmzoActionsSheet';
 import { transformOmzoData } from '@/utils/api-helpers';
@@ -46,15 +49,43 @@ export default function OmzoViewerScreen() {
 
     // State
     const [omzo, setOmzo] = useState(transformedOmzo);
-    const [isLiked, setIsLiked] = useState(transformedOmzo?.is_liked || false);
-    const [likeCount, setLikeCount] = useState(transformedOmzo?.like_count || 0);
-    const [commentCount, setCommentCount] = useState(transformedOmzo?.comment_count || 0);
-    const [isSaved, setIsSaved] = useState(transformedOmzo?.is_saved || false);
+    const [commentCount, setCommentCount] = useState(0);
+    const [isLoading, setIsLoading] = useState(true);
+    const [showComments, setShowComments] = useState(false);
+    const [showActions, setShowActions] = useState(false);
     const [shareCount] = useState(45); // Placeholder for share count
     const [paused, setPaused] = useState(false);
     const [isMuted, setIsMuted] = useState(globalMuteState);
-    const [showComments, setShowComments] = useState(false);
-    const [showActions, setShowActions] = useState(false);
+
+    // Global stores
+    const { interactions, setInteraction } = useInteractionStore();
+    const interactionKey = `omzo_${omzo?.id}`;
+    const interaction = interactions[interactionKey] || {
+        is_liked: omzo?.is_liked || false,
+        like_count: omzo?.like_count || 0,
+        is_saved: omzo?.is_saved || false,
+        is_reposted: omzo?.is_reposted || false,
+        repost_count: omzo?.reposts || 0
+    };
+
+    const isLiked = !!interaction.is_liked;
+    const likeCount = interaction.like_count || 0;
+    const isSaved = !!interaction.is_saved;
+    const isReposted = !!interaction.is_reposted;
+    const repostCount = interaction.repost_count || 0;
+
+    // Seed interaction store
+    useEffect(() => {
+        if (omzo && interactions[interactionKey] === undefined) {
+            setInteraction('omzo', omzo.id, {
+                is_liked: omzo.is_liked || false,
+                like_count: omzo.like_count || 0,
+                is_saved: omzo.is_saved || false,
+                is_reposted: omzo.is_reposted || false,
+                repost_count: omzo.reposts || 0
+            });
+        }
+    }, [omzo?.id, interactions[interactionKey]]);
 
     // Read follow state from global store — updates instantly when any screen toggles follow
     const omzoAuthorUsername = omzo?.user?.username || '';
@@ -74,9 +105,6 @@ export default function OmzoViewerScreen() {
     // Sync state with omzo changes
     useEffect(() => {
         if (omzo) {
-            setIsLiked(omzo.is_liked || false);
-            setLikeCount(omzo.like_count || 0);
-            setIsSaved(omzo.is_saved || false);
             setCommentCount(omzo.comment_count || 0);
         }
     }, [omzo]);
@@ -93,37 +121,38 @@ export default function OmzoViewerScreen() {
         React.useCallback(() => {
             // Re-sync state from omzo object
             if (omzo) {
-                setIsLiked(omzo.is_liked || false);
-                setLikeCount(omzo.like_count || 0);
-                setIsSaved(omzo.is_saved || false);
                 setCommentCount(omzo.comment_count || 0);
             }
         }, [omzo])
     );
-
     const handleLike = async () => {
-        const prevLiked = isLiked;
-        const prevCount = likeCount;
+        if (!omzo) return;
+        const prevInteraction = interaction;
 
         // Optimistic update
-        setIsLiked(!isLiked);
-        setLikeCount((prev: number) => isLiked ? prev - 1 : prev + 1);
+        const newIsLiked = !isLiked;
+        const newLikeCount = isLiked ? Math.max(0, likeCount - 1) : likeCount + 1;
+        
+        setInteraction('omzo', omzo.id, {
+            is_liked: newIsLiked,
+            like_count: newLikeCount
+        });
 
         try {
             const response = await api.toggleOmzoLike(omzo.id);
             if (response.success) {
-                const newIsLiked = (response as any).is_liked;
-                const newLikeCount = (response as any).like_count;
-                setIsLiked(newIsLiked);
-                setLikeCount(newLikeCount);
+                setInteraction('omzo', omzo.id, {
+                    is_liked: (response as any).is_liked,
+                    like_count: (response as any).like_count,
+                    is_disliked: (response as any).is_disliked,
+                    dislike_count: (response as any).dislike_count
+                });
             } else {
-                setIsLiked(prevLiked);
-                setLikeCount(prevCount);
+                setInteraction('omzo', omzo.id, prevInteraction);
             }
         } catch (error) {
             console.error('Error toggling like:', error);
-            setIsLiked(prevLiked);
-            setLikeCount(prevCount);
+            setInteraction('omzo', omzo.id, prevInteraction);
         }
     };
 
@@ -181,19 +210,55 @@ export default function OmzoViewerScreen() {
     };
 
     const handleToggleSave = async () => {
+        if (!omzo) return;
         const prevSaved = isSaved;
-        setIsSaved(!isSaved);
+        
+        // Optimistic update
+        setInteraction('omzo', omzo.id, { is_saved: !isSaved });
 
         try {
             const response = await api.toggleSaveOmzo(omzo.id);
             if (response.success) {
-                setIsSaved((response as any).is_saved);
+                setInteraction('omzo', omzo.id, { is_saved: (response as any).is_saved });
             } else {
-                setIsSaved(prevSaved);
+                setInteraction('omzo', omzo.id, { is_saved: prevSaved });
             }
         } catch (error) {
             console.error('Error toggling save:', error);
-            setIsSaved(prevSaved);
+            setInteraction('omzo', omzo.id, { is_saved: prevSaved });
+        }
+    };
+    const handleRepost = async () => {
+        if (!omzo) return;
+        const prevInteraction = interaction;
+
+        // Optimistic update
+        const newReposted = !isReposted;
+        const newCount = isReposted ? Math.max(0, repostCount - 1) : repostCount + 1;
+        
+        setInteraction('omzo', omzo.id, {
+            is_reposted: newReposted,
+            repost_count: newCount
+        });
+
+        try {
+            const response = await api.toggleRepostOmzo(omzo.id);
+            if (response.success) {
+                const actualReposted = response.is_reposted ?? newReposted;
+                setInteraction('omzo', omzo.id, {
+                    is_reposted: actualReposted
+                });
+                const msg = response.action === 'removed'
+                    ? 'Repost removed from your profile'
+                    : 'Reposted to your profile';
+                Alert.alert('', msg, [{ text: 'OK' }]);
+            } else {
+                setInteraction('omzo', omzo.id, prevInteraction);
+                Alert.alert('Error', response.error || 'Failed to repost');
+            }
+        } catch (err: any) {
+            setInteraction('omzo', omzo.id, prevInteraction);
+            Alert.alert('Error', err?.message || 'Failed to repost');
         }
     };
 
@@ -397,6 +462,23 @@ export default function OmzoViewerScreen() {
                         />
                     </View>
                 </TouchableOpacity>
+                
+                {/* Repost */}
+                <TouchableOpacity style={styles.actionButton} onPress={handleRepost} activeOpacity={0.7}>
+                    <View style={[
+                        styles.actionIconContainer,
+                        isReposted && { backgroundColor: 'rgba(16,185,129,0.35)', borderColor: 'rgba(16,185,129,0.5)' }
+                    ]}>
+                        <Icon
+                            name={isReposted ? 'repeat' : 'repeat-outline'}
+                            size={24}
+                            color={isReposted ? '#10B981' : '#FFFFFF'}
+                        />
+                    </View>
+                    <Text style={[styles.actionCount, isReposted && { color: '#10B981' }]}>
+                        {formatCount(repostCount)}
+                    </Text>
+                </TouchableOpacity>
 
                 {/* Share */}
                 <TouchableOpacity style={styles.actionButton} onPress={handleShare} activeOpacity={0.7}>
@@ -423,6 +505,8 @@ export default function OmzoViewerScreen() {
                 omzo={omzo}
                 isSaved={isSaved}
                 onToggleSave={handleToggleSave}
+                isReposted={isReposted}
+                onToggleRepost={handleRepost}
             />
         </View>
     );

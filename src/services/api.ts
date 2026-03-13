@@ -375,6 +375,24 @@ class ApiService {
         }
     }
 
+    async toggleRepostScribe(scribeId: number): Promise<ApiResponse & { is_reposted?: boolean; action?: string }> {
+        try {
+            const response = await this.api.post('/api/repost/', { type: 'scribe', id: scribeId });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async toggleRepostOmzo(omzoId: number): Promise<ApiResponse & { is_reposted?: boolean; action?: string }> {
+        try {
+            const response = await this.api.post('/api/repost/', { type: 'omzo', id: omzoId });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
     async addComment(scribeId: number, content: string, parentId?: number): Promise<ApiResponse> {
         try {
             const response = await this.api.post('/api/add-comment/', {
@@ -554,6 +572,20 @@ class ApiService {
     async getFollowing(username: string): Promise<ApiResponse<User[]>> {
         try {
             const response = await this.api.get(`/api/profile/${username}/following/`);
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    // ==================== GROUPS ====================
+    async createGroup(formData: FormData): Promise<ApiResponse<{ group: any }>> {
+        try {
+            const response = await this.api.post('/api/create-group/', formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                },
+            });
             return response.data;
         } catch (error) {
             return this.handleError(error);

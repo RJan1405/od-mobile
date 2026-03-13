@@ -7,6 +7,7 @@ import {
     Dimensions,
     Image,
     Platform,
+    Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Video from 'react-native-video';
@@ -15,6 +16,8 @@ import { useThemeStore } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
 import api from '@/services/api';
 import type { Omzo } from '@/types';
+import { useFollowStore } from '@/stores/followStore';
+import { useInteractionStore } from '@/stores/interactionStore';
 import OmzoCommentsSheet from './OmzoCommentsSheet';
 import OmzoActionsSheet from './OmzoActionsSheet';
 
@@ -44,25 +47,58 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
     const navigation = useNavigation();
     const { user: currentUser } = useAuthStore();
     const videoRef = useRef<any>(null);
-    const [isLiked, setIsLiked] = useState(omzo.is_liked || false);
-    const [likeCount, setLikeCount] = useState(omzo.like_count);
     const [commentCount, setCommentCount] = useState(omzo.comment_count);
-    const [isSaved, setIsSaved] = useState(omzo.is_saved || false);
     const [shareCount] = useState(45); // Placeholder for share count
-    const [isFollowing, setIsFollowing] = useState(omzo.is_following || false);
     const [paused, setPaused] = useState(!isActive);
     const [isMuted, setIsMuted] = useState(globalMuteState);
     const [showComments, setShowComments] = useState(false);
     const [showActions, setShowActions] = useState(false);
 
-    // Sync state with prop changes (for cross-screen updates)
+    // Global stores
+    const { interactions, setInteraction } = useInteractionStore();
+    const interactionKey = `omzo_${omzo.id}`;
+    const interaction = interactions[interactionKey] || {
+        is_liked: omzo.is_liked || false,
+        like_count: omzo.like_count || 0,
+        is_saved: omzo.is_saved || false,
+        is_reposted: omzo.is_reposted || false,
+        repost_count: omzo.reposts || 0
+    };
+
+    const isLiked = !!interaction.is_liked;
+    const likeCount = interaction.like_count || 0;
+    const isSaved = !!interaction.is_saved;
+    const isReposted = !!interaction.is_reposted;
+    const repostCount = interaction.repost_count || 0;
+
+    const { followStates, setFollowState } = useFollowStore();
+    const username = omzo.user?.username || omzo.username || '';
+    const followStoreValue = followStates[username];
+    const isFollowing = followStoreValue !== undefined ? followStoreValue : (omzo.is_following || false);
+
+    // Seed stores
     useEffect(() => {
-        setIsLiked(omzo.is_liked || false);
-        setLikeCount(omzo.like_count);
-        setIsSaved(omzo.is_saved || false);
+        if (followStoreValue === undefined && username) {
+            setFollowState(username, omzo.is_following || false);
+        }
+    }, [username, followStoreValue, omzo.is_following]);
+
+    useEffect(() => {
+        if (interactions[interactionKey] === undefined && omzo.id) {
+            setInteraction('omzo', omzo.id, {
+                is_liked: omzo.is_liked || false,
+                like_count: omzo.like_count || 0,
+                is_saved: omzo.is_saved || false,
+                is_reposted: omzo.is_reposted || false,
+                repost_count: omzo.reposts || 0
+            });
+        }
+    }, [omzo.id, interactions[interactionKey]]);
+
+    // Sync state with prop changes (for cross-screen updates if store is empty)
+    useEffect(() => {
         setCommentCount(omzo.comment_count);
-        setIsFollowing(omzo.is_following || false);
-    }, [omzo.is_liked, omzo.like_count, omzo.is_saved, omzo.comment_count, omzo.is_following]);
+    }, [omzo.comment_count]);
 
     useEffect(() => {
         setPaused(!isActive);
@@ -74,54 +110,55 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
     }, [isActive, omzo.id]);
 
     const handleLike = async () => {
-        const prevLiked = isLiked;
-        const prevCount = likeCount;
+        const prevInteraction = interaction;
 
         // Optimistic update
-        setIsLiked(!isLiked);
-        setLikeCount(prev => isLiked ? prev - 1 : prev + 1);
+        const newIsLiked = !isLiked;
+        const newLikeCount = isLiked ? Math.max(0, likeCount - 1) : likeCount + 1;
+
+        setInteraction('omzo', omzo.id, {
+            is_liked: newIsLiked,
+            like_count: newLikeCount
+        });
 
         try {
             const response = await api.toggleOmzoLike(omzo.id);
             if (response.success) {
-                const newIsLiked = (response as any).is_liked;
-                const newLikeCount = (response as any).like_count;
-                setIsLiked(newIsLiked);
-                setLikeCount(newLikeCount);
-                // Notify parent to update its state
-                onLikeToggle?.(omzo.id, newIsLiked, newLikeCount);
+                setInteraction('omzo', omzo.id, {
+                    is_liked: (response as any).is_liked,
+                    like_count: (response as any).like_count,
+                    is_disliked: (response as any).is_disliked,
+                    dislike_count: (response as any).dislike_count
+                });
+                onLikeToggle?.(omzo.id, (response as any).is_liked, (response as any).like_count);
             } else {
-                // Rollback
-                setIsLiked(prevLiked);
-                setLikeCount(prevCount);
+                setInteraction('omzo', omzo.id, prevInteraction);
             }
         } catch (error) {
             console.error('Error toggling like:', error);
-            // Rollback
-            setIsLiked(prevLiked);
-            setLikeCount(prevCount);
+            setInteraction('omzo', omzo.id, prevInteraction);
         }
     };
 
     const handleFollow = async () => {
-        if (!omzo.user?.username && !omzo.username) return;
+        if (!username) return;
 
         const prevFollowing = isFollowing;
-        setIsFollowing(!isFollowing);
+        const newFollowing = !isFollowing;
+
+        setFollowState(username, newFollowing);
 
         try {
-            const username = omzo.user?.username || omzo.username;
-            if (username) {
-                const response = await api.toggleFollow(username);
-                if (response.success) {
-                    setIsFollowing((response as any).is_following);
-                } else {
-                    setIsFollowing(prevFollowing);
-                }
+            const response = await api.toggleFollow(username);
+            if (response.success) {
+                const nowFollowing = (response as any).is_following ?? newFollowing;
+                setFollowState(username, nowFollowing);
+            } else {
+                setFollowState(username, prevFollowing);
             }
         } catch (error) {
             console.error('Error toggling follow:', error);
-            setIsFollowing(prevFollowing);
+            setFollowState(username, prevFollowing);
         }
     };
 
@@ -147,19 +184,21 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
 
     const handleToggleSave = async () => {
         const prevSaved = isSaved;
-        setIsSaved(!isSaved);
+
+        // Optimistic update
+        setInteraction('omzo', omzo.id, { is_saved: !isSaved });
 
         try {
             const response = await api.toggleSaveOmzo(omzo.id);
             if (response.success) {
-                setIsSaved((response as any).is_saved);
+                setInteraction('omzo', omzo.id, { is_saved: (response as any).is_saved });
                 onSaveToggle?.(omzo.id, (response as any).is_saved);
             } else {
-                setIsSaved(prevSaved);
+                setInteraction('omzo', omzo.id, { is_saved: prevSaved });
             }
         } catch (error) {
             console.error('Error toggling save:', error);
-            setIsSaved(prevSaved);
+            setInteraction('omzo', omzo.id, { is_saved: prevSaved });
         }
     };
 
@@ -169,6 +208,39 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
         console.log('Share omzo:', omzo.id);
         if (isActive) {
             setPaused(false);
+        }
+    };
+
+    const handleRepost = async () => {
+        const prevInteraction = interaction;
+
+        // Optimistic update
+        const newReposted = !isReposted;
+        const newCount = isReposted ? Math.max(0, repostCount - 1) : repostCount + 1;
+
+        setInteraction('omzo', omzo.id, {
+            is_reposted: newReposted,
+            repost_count: newCount
+        });
+
+        try {
+            const response = await api.toggleRepostOmzo(omzo.id);
+            if (response.success) {
+                const actualReposted = response.is_reposted ?? newReposted;
+                setInteraction('omzo', omzo.id, {
+                    is_reposted: actualReposted
+                });
+                const msg = response.action === 'removed'
+                    ? 'Repost removed from your profile'
+                    : 'Reposted to your profile';
+                Alert.alert('', msg, [{ text: 'OK' }]);
+            } else {
+                setInteraction('omzo', omzo.id, prevInteraction);
+                Alert.alert('Error', response.error || 'Failed to repost');
+            }
+        } catch (err: any) {
+            setInteraction('omzo', omzo.id, prevInteraction);
+            Alert.alert('Error', err?.message || 'Failed to repost');
         }
     };
 
@@ -350,6 +422,23 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
                     </View>
                 </TouchableOpacity>
 
+                {/* Repost */}
+                <TouchableOpacity style={styles.actionButton} onPress={handleRepost} activeOpacity={0.7}>
+                    <View style={[
+                        styles.actionIconContainer,
+                        isReposted && { backgroundColor: 'rgba(16,185,129,0.35)', borderColor: 'rgba(16,185,129,0.5)' }
+                    ]}>
+                        <Icon
+                            name={isReposted ? 'repeat' : 'repeat-outline'}
+                            size={24}
+                            color={isReposted ? '#10B981' : '#FFFFFF'}
+                        />
+                    </View>
+                    <Text style={[styles.actionCount, isReposted && { color: '#10B981' }]}>
+                        {formatCount(repostCount)}
+                    </Text>
+                </TouchableOpacity>
+
                 {/* Share */}
                 <TouchableOpacity style={styles.actionButton} onPress={handleShare} activeOpacity={0.7}>
                     <View style={styles.actionIconContainer}>
@@ -375,6 +464,8 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
                 omzo={omzo}
                 isSaved={isSaved}
                 onToggleSave={handleToggleSave}
+                isReposted={isReposted}
+                onToggleRepost={handleRepost}
             />
         </View>
     );

@@ -18,6 +18,8 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useFollowStore } from '@/stores/followStore';
+import { useInteractionStore } from '@/stores/interactionStore';
+import { useRepostStore } from '@/stores/repostStore';
 import { THEME_INFO } from '@/config';
 import api from '@/services/api';
 import type { User, Scribe, Omzo } from '@/types';
@@ -40,14 +42,17 @@ export default function ProfileScreen() {
 
     const [user, setUser] = useState<User | null>(null);
     const [scribes, setScribes] = useState<Scribe[]>([]);
+    const [reposts, setReposts] = useState<Scribe[]>([]);
     const [omzos, setOmzos] = useState<Omzo[]>([]);
     const [savedItems, setSavedItems] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isLoadingSaved, setIsLoadingSaved] = useState(false);
-    const [activeTab, setActiveTab] = useState<'scribes' | 'omzos' | 'saved'>('scribes');
+    const [activeTab, setActiveTab] = useState<'scribes' | 'reposts' | 'omzos' | 'saved'>('scribes');
 
-    // Global follow store — shared across all screens/components
+    // Global stores — shared across all screens/components
     const { followStates, setFollowState, batchSetFollowStates } = useFollowStore();
+    const { interactions, setInteraction } = useInteractionStore();
+    const { repostStates, setRepostState } = useRepostStore(); // keep for proxy compatibility if needed elsewhere
     const profileUsername = username || currentUser?.username || '';
     const isFollowing = followStates[profileUsername] ?? false;
 
@@ -77,6 +82,7 @@ export default function ProfileScreen() {
                         const profileData = (response.data || response.user) as User;
                         setUser(profileData);
                         setScribes(response.scribes || []);
+                        setReposts(response.reposts || []);
                         setOmzos(response.omzos || []);
                         // Own profile — never following yourself
                         setFollowState(profileUsername, false);
@@ -96,8 +102,10 @@ export default function ProfileScreen() {
                     setFollowState(username, (profileData as any).is_following || false);
 
                     const scribesRaw = response.scribes || [];
+                    const repostsRaw = response.reposts || [];
                     const omzosRaw = response.omzos || [];
                     setScribes(scribesRaw);
+                    setReposts(repostsRaw);
                     setOmzos(omzosRaw);
 
                     // Batch-fetch authoritative follow state for this user
@@ -123,6 +131,13 @@ export default function ProfileScreen() {
                             is_following: nowFollowing,
                             user: { ...o.user, is_following: nowFollowing },
                         } as any)));
+
+                        // Stamp is_following onto every repost
+                        setReposts(prev => prev.map(s => ({
+                            ...s,
+                            is_following: nowFollowing,
+                            user: { ...s.user, is_following: nowFollowing },
+                        })));
                     }).catch(() => {/* non-critical */ });
                 }
                 setIsLoading(false);
@@ -490,6 +505,8 @@ export default function ProfileScreen() {
                         </Text>
                     </TouchableOpacity>
 
+
+
                     <TouchableOpacity
                         style={[styles.tab, activeTab === 'omzos' && { borderBottomColor: colors.primary, borderBottomWidth: 2 }]}
                         onPress={() => setActiveTab('omzos')}
@@ -519,6 +536,20 @@ export default function ProfileScreen() {
                             </Text>
                         </TouchableOpacity>
                     )}
+
+                    <TouchableOpacity
+                        style={[styles.tab, activeTab === 'reposts' && { borderBottomColor: colors.primary, borderBottomWidth: 2 }]}
+                        onPress={() => setActiveTab('reposts')}
+                    >
+                        <Icon
+                            name={activeTab === 'reposts' ? 'repeat' : 'repeat-outline'}
+                            size={20}
+                            color={activeTab === 'reposts' ? colors.primary : colors.textSecondary}
+                        />
+                        <Text style={[styles.tabLabel, { color: activeTab === 'reposts' ? colors.primary : colors.textSecondary }]}>
+                            Reposts
+                        </Text>
+                    </TouchableOpacity>
                 </View>
 
                 {/* Tab Content */}
@@ -534,6 +565,8 @@ export default function ProfileScreen() {
                             </Text>
                         )
                     )}
+
+
 
                     {activeTab === 'omzos' && (
                         omzos.length > 0 ? (
@@ -641,6 +674,9 @@ export default function ProfileScreen() {
                                             content_type: item.media_type || 'text',
                                             image_url: item.image_url || '',
                                             createdAt: item.created_at,
+                                            code_html: item.code_html || '',
+                                            code_css: item.code_css || '',
+                                            code_js: item.code_js || '',
                                             like_count: item.likes || 0,
                                             dislike_count: item.dislikes || 0,
                                             comment_count: item.comments || 0,
@@ -648,6 +684,8 @@ export default function ProfileScreen() {
                                             is_liked: false,
                                             is_disliked: false,
                                             is_saved: true,
+                                            original_type: item.original_type,
+                                            original_data: item.original_data,
                                         };
                                         return (
                                             <ScribeCard
@@ -659,20 +697,31 @@ export default function ProfileScreen() {
                                     } else if (item.type === 'omzo') {
                                         // Inline component for saved omzo with local unsave interaction
                                         const SavedOmzoCard = () => {
-                                            const [localIsSaved, setLocalIsSaved] = useState(true);
+                                            const key = `omzo_${item.id}`;
+                                            const currentInteraction = interactions[key] || {
+                                                is_liked: item.is_liked || false,
+                                                is_disliked: item.is_disliked || false,
+                                                is_reposted: item.is_reposted || false,
+                                                is_saved: item.is_saved || false,
+                                                like_count: item.likes || 0,
+                                                dislike_count: item.dislikes || 0,
+                                                repost_count: item.reposts || 0,
+                                            };
 
                                             const handleUnsave = async () => {
-                                                setLocalIsSaved(false);
+                                                const prevInteraction = { ...currentInteraction };
+                                                setInteraction('omzo', item.id, { is_saved: false }); // Optimistic update
                                                 try {
                                                     const response = await api.toggleSaveOmzo(item.id);
                                                     if (response.success) {
                                                         handleOmzoSaveToggle(item.id, response.is_saved || false);
+                                                        setInteraction('omzo', item.id, { is_saved: response.is_saved }); // Authoritative update
                                                     } else {
-                                                        setLocalIsSaved(true);
+                                                        setInteraction('omzo', item.id, prevInteraction); // Revert on failure
                                                     }
                                                 } catch (error) {
                                                     console.error('Error unsaving omzo:', error);
-                                                    setLocalIsSaved(true);
+                                                    setInteraction('omzo', item.id, prevInteraction); // Revert on failure
                                                 }
                                             };
 
@@ -764,9 +813,9 @@ export default function ProfileScreen() {
                                                                     like_count: item.likes || 0,
                                                                     dislike_count: item.dislikes || 0,
                                                                     comment_count: item.comments || 0,
-                                                                    is_liked: item.is_liked || false,
-                                                                    is_disliked: item.is_disliked || false,
-                                                                    is_saved: localIsSaved,
+                                                                    is_liked: currentInteraction.is_liked,
+                                                                    is_disliked: currentInteraction.is_disliked,
+                                                                    is_saved: currentInteraction.is_saved,
                                                                 };
                                                                 (navigation as any).navigate('OmzoViewer', { omzo: transformedOmzo });
                                                             }}
@@ -790,30 +839,148 @@ export default function ProfileScreen() {
                                                     )}
 
                                                     <View style={[styles.scribeActions, { borderTopColor: `${colors.border}80` }]}>
-                                                        <View style={styles.scribeActionButton}>
-                                                            <Icon name="heart-outline" size={20} color={colors.textSecondary} />
-                                                            <Text style={[styles.scribeActionText, { color: colors.textSecondary }]}>
-                                                                {formatCount(item.likes || 0)}
+                                                        {/* Like */}
+                                                        <TouchableOpacity
+                                                            style={styles.scribeActionButton}
+                                                            onPress={async () => {
+                                                                const key = `omzo_${item.id}`;
+                                                                const currentInteraction = interactions[key] || {
+                                                                    is_liked: item.is_liked || false,
+                                                                    like_count: item.likes || 0
+                                                                };
+                                                                const prevInteraction = { ...currentInteraction };
+
+                                                                const newIsLiked = !currentInteraction.is_liked;
+                                                                const newLikeCount = currentInteraction.is_liked
+                                                                    ? Math.max(0, (currentInteraction.like_count || 0) - 1)
+                                                                    : (currentInteraction.like_count || 0) + 1;
+
+                                                                setInteraction('omzo', item.id, {
+                                                                    is_liked: newIsLiked,
+                                                                    like_count: newLikeCount
+                                                                });
+
+                                                                try {
+                                                                    const resp = await api.toggleOmzoLike(item.id);
+                                                                    if (resp.success) {
+                                                                        setInteraction('omzo', item.id, {
+                                                                            is_liked: (resp as any).is_liked,
+                                                                            like_count: (resp as any).like_count
+                                                                        });
+                                                                    } else {
+                                                                        setInteraction('omzo', item.id, prevInteraction);
+                                                                    }
+                                                                } catch (err) {
+                                                                    setInteraction('omzo', item.id, prevInteraction);
+                                                                }
+                                                            }}
+                                                        >
+                                                            <Icon
+                                                                name={(interactions[`omzo_${item.id}`]?.is_liked ?? item.is_liked) ? "heart" : "heart-outline"}
+                                                                size={20}
+                                                                color={(interactions[`omzo_${item.id}`]?.is_liked ?? item.is_liked) ? "#EF4444" : colors.textSecondary}
+                                                            />
+                                                            <Text style={[styles.scribeActionText, { color: (interactions[`omzo_${item.id}`]?.is_liked ?? item.is_liked) ? "#EF4444" : colors.textSecondary }]}>
+                                                                {formatCount(interactions[`omzo_${item.id}`]?.like_count ?? (item.likes || 0))}
                                                             </Text>
-                                                        </View>
-                                                        <View style={styles.scribeActionButton}>
-                                                            <Icon name="thumbs-down-outline" size={20} color={colors.textSecondary} />
-                                                            <Text style={[styles.scribeActionText, { color: colors.textSecondary }]}>
-                                                                {formatCount(item.dislikes || 0)}
+                                                        </TouchableOpacity>
+
+                                                        {/* Dislike */}
+                                                        <TouchableOpacity
+                                                            style={styles.scribeActionButton}
+                                                            onPress={async () => {
+                                                                const key = `omzo_${item.id}`;
+                                                                const currentInteraction = interactions[key] || {
+                                                                    is_disliked: item.is_disliked || false,
+                                                                    dislike_count: item.dislikes || 0
+                                                                };
+                                                                const prevInteraction = { ...currentInteraction };
+
+                                                                const newIsDisliked = !currentInteraction.is_disliked;
+                                                                const newDislikeCount = currentInteraction.is_disliked
+                                                                    ? Math.max(0, (currentInteraction.dislike_count || 0) - 1)
+                                                                    : (currentInteraction.dislike_count || 0) + 1;
+
+                                                                setInteraction('omzo', item.id, {
+                                                                    is_disliked: newIsDisliked,
+                                                                    dislike_count: newDislikeCount
+                                                                });
+
+                                                                try {
+                                                                    const resp = await api.toggleOmzoDislike(item.id);
+                                                                    if (resp.success) {
+                                                                        setInteraction('omzo', item.id, {
+                                                                            is_disliked: (resp as any).is_disliked,
+                                                                            dislike_count: (resp as any).dislike_count
+                                                                        });
+                                                                    } else {
+                                                                        setInteraction('omzo', item.id, prevInteraction);
+                                                                    }
+                                                                } catch (err) {
+                                                                    setInteraction('omzo', item.id, prevInteraction);
+                                                                }
+                                                            }}
+                                                        >
+                                                            <Icon
+                                                                name={(interactions[`omzo_${item.id}`]?.is_disliked ?? item.is_disliked) ? "thumbs-down" : "thumbs-down-outline"}
+                                                                size={20}
+                                                                color={(interactions[`omzo_${item.id}`]?.is_disliked ?? item.is_disliked) ? "#EF4444" : colors.textSecondary}
+                                                            />
+                                                            <Text style={[styles.scribeActionText, { color: (interactions[`omzo_${item.id}`]?.is_disliked ?? item.is_disliked) ? "#EF4444" : colors.textSecondary }]}>
+                                                                {formatCount(interactions[`omzo_${item.id}`]?.dislike_count ?? (item.dislikes || 0))}
                                                             </Text>
-                                                        </View>
+                                                        </TouchableOpacity>
+
                                                         <View style={styles.scribeActionButton}>
                                                             <Icon name="chatbubble-outline" size={20} color={colors.textSecondary} />
                                                             <Text style={[styles.scribeActionText, { color: colors.textSecondary }]}>
                                                                 {formatCount(item.comments || 0)}
                                                             </Text>
                                                         </View>
-                                                        <View style={styles.scribeActionButton}>
-                                                            <Icon name="repeat-outline" size={20} color={colors.textSecondary} />
-                                                            <Text style={[styles.scribeActionText, { color: colors.textSecondary }]}>
-                                                                {formatCount(item.reposts || 0)}
+
+                                                        <TouchableOpacity
+                                                            style={styles.scribeActionButton}
+                                                            onPress={async () => {
+                                                                const key = `omzo_${item.id}`;
+                                                                const currentInteraction = interactions[key] || {
+                                                                    is_reposted: item.is_reposted || false,
+                                                                    repost_count: item.reposts || 0
+                                                                };
+                                                                const prevInteraction = { ...currentInteraction };
+
+                                                                const newReposted = !currentInteraction.is_reposted;
+                                                                const newCount = currentInteraction.is_reposted
+                                                                    ? Math.max(0, (currentInteraction.repost_count || 0) - 1)
+                                                                    : (currentInteraction.repost_count || 0) + 1;
+
+                                                                setInteraction('omzo', item.id, {
+                                                                    is_reposted: newReposted,
+                                                                    repost_count: newCount
+                                                                });
+
+                                                                try {
+                                                                    const resp = await api.toggleRepostOmzo(item.id);
+                                                                    if (resp.success) {
+                                                                        const actual = resp.is_reposted ?? newReposted;
+                                                                        setInteraction('omzo', item.id, { is_reposted: actual });
+                                                                    } else {
+                                                                        setInteraction('omzo', item.id, prevInteraction);
+                                                                    }
+                                                                } catch (err) {
+                                                                    setInteraction('omzo', item.id, prevInteraction);
+                                                                }
+                                                            }}
+                                                        >
+                                                            <Icon
+                                                                name={(interactions[`omzo_${item.id}`]?.is_reposted ?? item.is_reposted) ? "repeat" : "repeat-outline"}
+                                                                size={20}
+                                                                color={(interactions[`omzo_${item.id}`]?.is_reposted ?? item.is_reposted) ? "#10B981" : colors.textSecondary}
+                                                            />
+                                                            <Text style={[styles.scribeActionText, { color: (interactions[`omzo_${item.id}`]?.is_reposted ?? item.is_reposted) ? "#10B981" : colors.textSecondary }]}>
+                                                                {formatCount(interactions[`omzo_${item.id}`]?.repost_count ?? (item.reposts || 0))}
                                                             </Text>
-                                                        </View>
+                                                        </TouchableOpacity>
+
                                                         <View style={styles.scribeActionButton}>
                                                             <Icon name="share-social-outline" size={20} color={colors.textSecondary} />
                                                         </View>
@@ -823,9 +990,9 @@ export default function ProfileScreen() {
                                                             onPress={handleUnsave}
                                                         >
                                                             <Icon
-                                                                name={localIsSaved ? 'bookmark' : 'bookmark-outline'}
+                                                                name={(interactions[`omzo_${item.id}`]?.is_saved ?? item.is_saved) ? 'bookmark' : 'bookmark-outline'}
                                                                 size={20}
-                                                                color={localIsSaved ? colors.primary : colors.textSecondary}
+                                                                color={(interactions[`omzo_${item.id}`]?.is_saved ?? item.is_saved) ? colors.primary : colors.textSecondary}
                                                             />
                                                         </TouchableOpacity>
                                                     </View>
@@ -840,6 +1007,17 @@ export default function ProfileScreen() {
                         ) : (
                             <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
                                 No saved items yet
+                            </Text>
+                        )
+                    )}
+                    {activeTab === 'reposts' && (
+                        reposts.length > 0 ? (
+                            reposts.map(repost => (
+                                <ScribeCard key={repost.id} scribe={repost} />
+                            ))
+                        ) : (
+                            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+                                No reposts yet
                             </Text>
                         )
                     )}

@@ -19,6 +19,8 @@ interface OmzoActionsSheetProps {
     omzo: Omzo;
     isSaved: boolean;
     onToggleSave: () => void;
+    isReposted?: boolean;
+    onToggleRepost?: () => void;
 }
 
 export default function OmzoActionsSheet({
@@ -27,6 +29,8 @@ export default function OmzoActionsSheet({
     omzo,
     isSaved,
     onToggleSave,
+    isReposted = false,
+    onToggleRepost,
 }: OmzoActionsSheetProps) {
     const { colors } = useThemeStore();
     const [showReportOptions, setShowReportOptions] = useState(false);
@@ -35,7 +39,7 @@ export default function OmzoActionsSheet({
         try {
             const shareUrl = `https://odnix.com/omzo/${omzo.id}/`;
             await Share.share({
-                message: `Check out this video by ${omzo.user.username}${omzo.caption ? `: ${omzo.caption}` : ''}\n\n${shareUrl}`,
+                message: `Check out this video by ${omzo.user?.username ?? omzo.username ?? 'someone'}${omzo.caption ? `: ${omzo.caption}` : ''}\n\n${shareUrl}`,
                 url: shareUrl,
             });
             onClose();
@@ -46,6 +50,11 @@ export default function OmzoActionsSheet({
 
     const handleSave = () => {
         onToggleSave();
+        onClose();
+    };
+
+    const handleRepost = () => {
+        onToggleRepost?.();
         onClose();
     };
 
@@ -158,6 +167,22 @@ export default function OmzoActionsSheet({
                             {isSaved ? 'Remove from saved' : 'Save video'}
                         </Text>
                     </TouchableOpacity>
+
+                    {onToggleRepost && (
+                        <TouchableOpacity
+                            style={[styles.optionItem, { borderBottomColor: colors.border }]}
+                            onPress={handleRepost}
+                        >
+                            <Icon
+                                name={isReposted ? 'repeat' : 'repeat-outline'}
+                                size={24}
+                                color={isReposted ? '#10B981' : colors.text}
+                            />
+                            <Text style={[styles.optionText, { color: isReposted ? '#10B981' : colors.text }]}>
+                                {isReposted ? 'Undo Repost' : 'Repost to profile'}
+                            </Text>
+                        </TouchableOpacity>
+                    )}
 
                     <TouchableOpacity
                         style={[styles.optionItem, { borderBottomColor: colors.border }]}

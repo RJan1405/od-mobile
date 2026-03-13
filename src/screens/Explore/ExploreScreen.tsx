@@ -16,6 +16,7 @@ import {
     KeyboardAvoidingView,
     Platform,
     DeviceEventEmitter,
+    Alert,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import Video from 'react-native-video';
@@ -24,6 +25,8 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useThemeStore } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useFollowStore } from '@/stores/followStore';
+import { useInteractionStore } from '@/stores/interactionStore';
+import { useRepostStore } from '@/stores/repostStore';
 import api from '@/services/api';
 import ScribeCard from '@/components/ScribeCard';
 import type { User, Scribe, Omzo } from '@/types';
@@ -60,6 +63,8 @@ export default function ExploreScreen() {
     const { colors } = useThemeStore();
     const { user } = useAuthStore();
     const { followStates, setFollowState, batchSetFollowStates } = useFollowStore();
+    const { interactions, setInteraction, batchSetInteractions } = useInteractionStore();
+    const { repostStates, setRepostState } = useRepostStore();
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<any[]>([]);
     const [exploreFeed, setExploreFeed] = useState<any[]>([]);
@@ -120,6 +125,8 @@ export default function ExploreScreen() {
     // Sync modal state when feed item updates
     useEffect(() => {
         if (selectedScribe && isModalVisible) {
+            const key = `scribe_${selectedScribe.id}`;
+            const storeVal = repostStates[key];
             const updatedItem = exploreFeed.find(item => item.id === selectedScribe.id);
             if (updatedItem) {
                 setModalLiked(updatedItem.isLiked || false);
@@ -128,10 +135,11 @@ export default function ExploreScreen() {
                 setModalLikeCount(updatedItem.likes || 0);
                 setModalDislikeCount(updatedItem.dislikes || 0);
                 setModalCommentCount(updatedItem.comments || 0);
-                setModalRepostCount(updatedItem.reposts || updatedItem.shares || 0);
+                // Use store if available, else feed
+                setModalRepostCount(storeVal?.repost_count ?? (updatedItem.reposts || updatedItem.shares || 0));
             }
         }
-    }, [exploreFeed, selectedScribe?.id, isModalVisible]);
+    }, [exploreFeed, selectedScribe?.id, isModalVisible, repostStates]);
 
     // Sync omzo modal state when feed item updates
     useEffect(() => {
@@ -189,6 +197,23 @@ export default function ExploreScreen() {
                     return feedItem;
                 })
             );
+            // Seed interaction store with initial values from feed
+            const newInteractions: Record<string, any> = {};
+            items.forEach(item => {
+                if (item.type === 'scribe' || item.type === 'omzo') {
+                    const key = `${item.type}_${item.id}`;
+                    newInteractions[key] = {
+                        is_liked: item.isLiked || item.is_liked || false,
+                        like_count: item.likes || item.like_count || 0,
+                        is_disliked: item.isDisliked || item.is_disliked || false,
+                        dislike_count: item.dislikes || item.dislike_count || 0,
+                        is_saved: item.isSaved || item.is_saved || false,
+                        is_reposted: item.isReposted || item.is_reposted || false,
+                        repost_count: item.reposts || item.repost_count || item.shares || 0
+                    };
+                }
+            });
+            batchSetInteractions(newInteractions);
         } catch (e) {
             // non-critical
         }
@@ -238,7 +263,7 @@ export default function ExploreScreen() {
         }
 
         try {
-            const response = await api.getExploreFeed(page);
+            const response = await api.getExploreFeed(page) as any;
 
             if (response.success && response.results) {
                 const incoming = response.results;
@@ -449,6 +474,40 @@ export default function ExploreScreen() {
         }
     };
 
+    const handleModalRepost = async () => {
+        const item = selectedScribe || selectedOmzo;
+        if (!item) return;
+
+        const type = selectedScribe ? 'scribe' : 'omzo';
+        const key = `${type}_${item.id}`;
+        const prev = repostStates[key] || { is_reposted: false, repost_count: 0 };
+
+        const newReposted = !prev.is_reposted;
+        const newCount = prev.is_reposted ? Math.max(0, prev.repost_count - 1) : prev.repost_count + 1;
+
+        setRepostState(type, item.id, {
+            is_reposted: newReposted,
+            repost_count: newCount
+        });
+
+        try {
+            const response = type === 'scribe' 
+                ? await api.toggleRepostScribe(parseInt(item.id))
+                : await api.toggleRepostOmzo(parseInt(item.id));
+            
+            if (response.success) {
+                const actual = response.is_reposted ?? newReposted;
+                setRepostState(type, item.id, { is_reposted: actual });
+                Alert.alert('', response.action === 'removed' ? 'Repost removed' : 'Reposted');
+            } else {
+                setRepostState(type, item.id, prev);
+                Alert.alert('Error', response.error || 'Failed to repost');
+            }
+        } catch (err) {
+            setRepostState(type, item.id, prev);
+        }
+    };
+
     const handleModalComment = () => {
         // Navigate to scribe detail with comments
         closeScribeModal();
@@ -627,93 +686,180 @@ export default function ExploreScreen() {
         ));
     };
 
+    const formatCount = (count: number) => {
+        if (!count) return '0';
+        if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M';
+        if (count >= 1000) return (count / 1000).toFixed(1) + 'k';
+        return count.toString();
+    };
+
+    // Handle repost on scribe in masonry grid
+    const handleScribeRepost = async (scribeId: string) => {
+        const key = `scribe_${scribeId}`;
+        const prev = repostStates[key] || { is_reposted: false, repost_count: 0 };
+
+        const newReposted = !prev.is_reposted;
+        const newCount = prev.is_reposted ? Math.max(0, prev.repost_count - 1) : prev.repost_count + 1;
+
+        setRepostState('scribe', parseInt(scribeId), {
+            is_reposted: newReposted,
+            repost_count: newCount
+        });
+
+        try {
+            const response = await api.toggleRepostScribe(parseInt(scribeId));
+            if (response.success) {
+                const actual = response.is_reposted ?? newReposted;
+                setRepostState('scribe', parseInt(scribeId), { is_reposted: actual });
+            } else {
+                setRepostState('scribe', parseInt(scribeId), prev);
+            }
+        } catch (err) {
+            setRepostState('scribe', parseInt(scribeId), prev);
+        }
+    };
+
     // Handle like on scribe in masonry grid
     const handleScribeLike = async (scribeId: string, currentLiked: boolean) => {
-        const currentItem = exploreFeed.find(i => i.id === scribeId);
-        const optimisticUpdates = {
-            isLiked: !currentLiked,
-            likes: currentLiked ? Math.max(0, (currentItem?.likes || 1) - 1) : (currentItem?.likes || 0) + 1
+        const key = `scribe_${scribeId}`;
+        const prevInteraction = interactions[key] || {
+            is_liked: currentLiked,
+            like_count: exploreFeed.find(i => i.id === scribeId)?.likes || 0
         };
-        updateFeedItem(scribeId, optimisticUpdates);
+
+        // Optimistic update
+        const newIsLiked = !prevInteraction.is_liked;
+        const newLikeCount = prevInteraction.is_liked 
+            ? Math.max(0, (prevInteraction.like_count || 0) - 1) 
+            : (prevInteraction.like_count || 0) + 1;
+        
+        setInteraction('scribe', scribeId, {
+            is_liked: newIsLiked,
+            like_count: newLikeCount
+        });
 
         try {
             const response = await api.toggleLike(parseInt(scribeId));
             if (response.success) {
-                updateFeedItem(scribeId, {
-                    isLiked: response.is_liked,
-                    likes: response.like_count,
-                    isDisliked: response.is_disliked,
-                    dislikes: response.dislike_count
+                setInteraction('scribe', scribeId, {
+                    is_liked: (response as any).is_liked,
+                    like_count: (response as any).like_count,
+                    is_disliked: (response as any).is_disliked,
+                    dislike_count: (response as any).dislike_count
                 });
             } else {
-                updateFeedItem(scribeId, { isLiked: currentLiked });
+                setInteraction('scribe', scribeId, prevInteraction);
             }
         } catch (error) {
             console.error('Error liking scribe:', error);
-            updateFeedItem(scribeId, { isLiked: currentLiked });
+            setInteraction('scribe', scribeId, prevInteraction);
         }
     };
 
     // Handle save on scribe in masonry grid
     const handleScribeSave = async (scribeId: string, currentSaved: boolean) => {
-        const optimisticUpdates = { isSaved: !currentSaved };
-        updateFeedItem(scribeId, optimisticUpdates);
+        const key = `scribe_${scribeId}`;
+        const prevSaved = (interactions[key]?.is_saved) ?? currentSaved;
+        
+        setInteraction('scribe', scribeId, { is_saved: !prevSaved });
 
         try {
             const response = await api.toggleSaveScribe(parseInt(scribeId));
             if (response.success) {
-                updateFeedItem(scribeId, { isSaved: response.is_saved });
+                setInteraction('scribe', scribeId, { is_saved: (response as any).is_saved });
             } else {
-                updateFeedItem(scribeId, { isSaved: currentSaved });
+                setInteraction('scribe', scribeId, { is_saved: prevSaved });
             }
         } catch (error) {
             console.error('Error saving scribe:', error);
-            updateFeedItem(scribeId, { isSaved: currentSaved });
+            setInteraction('scribe', scribeId, { is_saved: prevSaved });
         }
     };
 
     // Handle like on omzo in masonry grid
     const handleOmzoLike = async (omzoId: string, currentLiked: boolean) => {
-        const currentItem = exploreFeed.find(i => i.id === omzoId);
-        const optimisticUpdates = {
-            isLiked: !currentLiked,
-            likes: currentLiked ? Math.max(0, (currentItem?.likes || 1) - 1) : (currentItem?.likes || 0) + 1
+        const key = `omzo_${omzoId}`;
+        const prevInteraction = interactions[key] || {
+            is_liked: currentLiked,
+            like_count: exploreFeed.find(i => i.id === omzoId)?.likes || 0
         };
-        updateFeedItem(omzoId, optimisticUpdates);
+
+        const newIsLiked = !prevInteraction.is_liked;
+        const newLikeCount = prevInteraction.is_liked 
+            ? Math.max(0, (prevInteraction.like_count || 0) - 1) 
+            : (prevInteraction.like_count || 0) + 1;
+        
+        setInteraction('omzo', omzoId, {
+            is_liked: newIsLiked,
+            like_count: newLikeCount
+        });
 
         try {
             const response = await api.toggleOmzoLike(parseInt(omzoId));
             if (response.success) {
-                updateFeedItem(omzoId, {
-                    isLiked: response.is_liked,
-                    likes: response.like_count,
-                    isDisliked: response.is_disliked,
-                    dislikes: response.dislike_count
+                setInteraction('omzo', omzoId, {
+                    is_liked: (response as any).is_liked,
+                    like_count: (response as any).like_count,
+                    is_disliked: (response as any).is_disliked,
+                    dislike_count: (response as any).dislike_count
                 });
             } else {
-                updateFeedItem(omzoId, { isLiked: currentLiked });
+                setInteraction('omzo', omzoId, prevInteraction);
             }
         } catch (error) {
             console.error('Error liking omzo:', error);
-            updateFeedItem(omzoId, { isLiked: currentLiked });
+            setInteraction('omzo', omzoId, prevInteraction);
+        }
+    };
+
+    // Handle repost on omzo in masonry grid
+    const handleOmzoRepost = async (omzoId: string) => {
+        const key = `omzo_${omzoId}`;
+        const prevInteraction = interactions[key] || {
+            is_reposted: false,
+            repost_count: exploreFeed.find(i => i.id === omzoId)?.reposts || 0
+        };
+
+        const newReposted = !prevInteraction.is_reposted;
+        const newCount = prevInteraction.is_reposted 
+            ? Math.max(0, (prevInteraction.repost_count || 0) - 1) 
+            : (prevInteraction.repost_count || 0) + 1;
+
+        setInteraction('omzo', omzoId, {
+            is_reposted: newReposted,
+            repost_count: newCount
+        });
+
+        try {
+            const response = await api.toggleRepostOmzo(parseInt(omzoId));
+            if (response.success) {
+                const actual = response.is_reposted ?? newReposted;
+                setInteraction('omzo', omzoId, { is_reposted: actual });
+            } else {
+                setInteraction('omzo', omzoId, prevInteraction);
+            }
+        } catch (err) {
+            setInteraction('omzo', omzoId, prevInteraction);
         }
     };
 
     // Handle save on omzo in masonry grid
     const handleOmzoSave = async (omzoId: string, currentSaved: boolean) => {
-        const optimisticUpdates = { isSaved: !currentSaved };
-        updateFeedItem(omzoId, optimisticUpdates);
+        const key = `omzo_${omzoId}`;
+        const prevSaved = (interactions[key]?.is_saved) ?? currentSaved;
+        
+        setInteraction('omzo', omzoId, { is_saved: !prevSaved });
 
         try {
             const response = await api.toggleSaveOmzo(parseInt(omzoId));
             if (response.success) {
-                updateFeedItem(omzoId, { isSaved: response.is_saved });
+                setInteraction('omzo', omzoId, { is_saved: response.is_saved });
             } else {
-                updateFeedItem(omzoId, { isSaved: currentSaved });
+                setInteraction('omzo', omzoId, { is_saved: prevSaved });
             }
         } catch (error) {
             console.error('Error saving omzo:', error);
-            updateFeedItem(omzoId, { isSaved: currentSaved });
+            setInteraction('omzo', omzoId, { is_saved: prevSaved });
         }
     };
 
@@ -733,7 +879,7 @@ export default function ExploreScreen() {
 
         setIsSearching(true);
         try {
-            const response = await api.globalSearch(query);
+            const response = await api.globalSearch(query) as any;
 
             if (response.success && response.results) {
                 const results = response.results;
@@ -986,7 +1132,7 @@ export default function ExploreScreen() {
                     <View style={styles.exploreOmzoHeader}>
                         <TouchableOpacity
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            onPress={() => navigation.navigate('Profile' as never, { username: item.user?.username } as never)}
+                            onPress={() => navigation.navigate('Profile' as any, { username: item.user?.username } as any)}
                             activeOpacity={0.8}
                         >
                             {hasAvatar ? (
@@ -1207,9 +1353,21 @@ export default function ExploreScreen() {
                             <Icon name="chatbubble-outline" size={18} color={colors.textSecondary} />
                             <Text style={[styles.cardStatText, { color: colors.textSecondary }]}>{item.comments || 0}</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.cardAction}>
-                            <Icon name="repeat-outline" size={18} color={colors.textSecondary} />
-                            <Text style={[styles.cardStatText, { color: colors.textSecondary }]}>{item.shares || 0}</Text>
+                        <TouchableOpacity 
+                            style={styles.cardAction}
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                handleScribeRepost(item.id);
+                            }}
+                        >
+                            <Icon 
+                                name={(repostStates[`scribe_${item.id}`]?.is_reposted) ? "repeat" : "repeat-outline"} 
+                                size={18} 
+                                color={(repostStates[`scribe_${item.id}`]?.is_reposted) ? "#10B981" : colors.textSecondary} 
+                            />
+                            <Text style={[styles.cardStatText, { color: (repostStates[`scribe_${item.id}`]?.is_reposted) ? "#10B981" : colors.textSecondary }]}>
+                                {repostStates[`scribe_${item.id}`]?.repost_count ?? (item.shares || 0)}
+                            </Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                             style={styles.cardAction}
@@ -1292,35 +1450,53 @@ export default function ExploreScreen() {
                                 style={styles.omzoStatItem}
                                 onPress={(e) => {
                                     e.stopPropagation();
-                                    handleOmzoLike(item.id, item.isLiked || false);
+                                    const key = `omzo_${item.id}`;
+                                    const currentLiked = !!(interactions[key]?.is_liked ?? item.isLiked);
+                                    handleOmzoLike(item.id, currentLiked);
                                 }}
                             >
                                 <Icon
-                                    name={item.isLiked ? "heart" : "heart-outline"}
+                                    name={(interactions[`omzo_${item.id}`]?.is_liked ?? item.isLiked) ? "heart" : "heart-outline"}
                                     size={16}
-                                    color={item.isLiked ? "#EF4444" : "#FFFFFF"}
+                                    color={(interactions[`omzo_${item.id}`]?.is_liked ?? item.isLiked) ? "#EF4444" : "#FFFFFF"}
                                 />
-                                <Text style={styles.omzoStatText}>{item.likes || 0}</Text>
+                                <Text style={styles.omzoStatText}>
+                                    {formatCount(interactions[`omzo_${item.id}`]?.like_count ?? (item.likes || 0))}
+                                </Text>
                             </TouchableOpacity>
                             <TouchableOpacity style={styles.omzoStatItem}>
                                 <Icon name="chatbubble-outline" size={16} color="#FFFFFF" />
                                 <Text style={styles.omzoStatText}>{item.comments || 0}</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.omzoStatItem}>
-                                <Icon name="repeat-outline" size={16} color="#FFFFFF" />
-                                <Text style={styles.omzoStatText}>{item.shares || 0}</Text>
+                            <TouchableOpacity
+                                style={styles.omzoStatItem}
+                                onPress={(e) => {
+                                    e.stopPropagation();
+                                    handleOmzoRepost(item.id);
+                                }}
+                            >
+                                <Icon
+                                    name={(interactions[`omzo_${item.id}`]?.is_reposted ?? item.isReposted) ? "repeat" : "repeat-outline"}
+                                    size={16}
+                                    color={(interactions[`omzo_${item.id}`]?.is_reposted ?? item.isReposted) ? "#10B981" : "#FFFFFF"}
+                                />
+                                <Text style={[styles.omzoStatText, (interactions[`omzo_${item.id}`]?.is_reposted ?? item.isReposted) && { color: "#10B981" }]}>
+                                    {formatCount(interactions[`omzo_${item.id}`]?.repost_count ?? (item.reposts || 0))}
+                                </Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                                 style={styles.omzoStatItem}
                                 onPress={(e) => {
                                     e.stopPropagation();
-                                    handleOmzoSave(item.id, item.isSaved || false);
+                                    const key = `omzo_${item.id}`;
+                                    const currentSaved = !!(interactions[key]?.is_saved ?? item.isSaved);
+                                    handleOmzoSave(item.id, currentSaved);
                                 }}
                             >
                                 <Icon
-                                    name={item.isSaved ? "bookmark" : "bookmark-outline"}
+                                    name={(interactions[`omzo_${item.id}`]?.is_saved ?? item.isSaved) ? "bookmark" : "bookmark-outline"}
                                     size={16}
-                                    color={item.isSaved ? "#3B82F6" : "#FFFFFF"}
+                                    color={(interactions[`omzo_${item.id}`]?.is_saved ?? item.isSaved) ? colors.primary : "#FFFFFF"}
                                 />
                             </TouchableOpacity>
                         </View>
@@ -1639,8 +1815,12 @@ export default function ExploreScreen() {
                                     <TouchableOpacity style={styles.modalActionButton} onPress={handleModalComment}>
                                         <Icon name="chatbubble-outline" size={26} color={colors.textSecondary} />
                                     </TouchableOpacity>
-                                    <TouchableOpacity style={styles.modalActionButton}>
-                                        <Icon name="repeat-outline" size={26} color={colors.textSecondary} />
+                                    <TouchableOpacity style={styles.modalActionButton} onPress={handleModalRepost}>
+                                        <Icon 
+                                            name={(repostStates[`scribe_${selectedScribe.id}`]?.is_reposted) ? "repeat" : "repeat-outline"} 
+                                            size={26} 
+                                            color={(repostStates[`scribe_${selectedScribe.id}`]?.is_reposted) ? "#10B981" : colors.textSecondary} 
+                                        />
                                     </TouchableOpacity>
                                     <TouchableOpacity style={styles.modalActionButton} onPress={handleModalSave}>
                                         <Icon
@@ -2135,7 +2315,7 @@ const styles = StyleSheet.create({
         paddingVertical: 20,
         alignItems: 'center',
     },
-    // Search results styles
+    // --- Search Handlers ---
     resultItem: {
         width: SCREEN_WIDTH - 24,
         flexDirection: 'row',
@@ -2204,81 +2384,6 @@ const styles = StyleSheet.create({
     resultContent: {
         fontSize: 14,
         lineHeight: 20,
-    },
-    // Old explore feed item styles (for compatibility)
-    omzoCard: {
-        borderRadius: 12,
-        padding: 12,
-        marginBottom: 12,
-    },
-    omzoHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 12,
-    },
-    omzoAvatar: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        marginRight: 12,
-    },
-    omzoUserInfo: {
-        flex: 1,
-    },
-    omzoUsername: {
-        fontSize: 15,
-        fontWeight: '600',
-    },
-    omzoHandle: {
-        fontSize: 13,
-        marginTop: 2,
-    },
-    omzoVideoContainer: {
-        width: '100%',
-        aspectRatio: 9 / 16,
-        borderRadius: 12,
-        overflow: 'hidden',
-        marginBottom: 12,
-    },
-    omzoVideo: {
-        width: '100%',
-        height: '100%',
-    },
-    playOverlay: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    },
-    playButton: {
-        width: 60,
-        height: 60,
-        borderRadius: 30,
-        backgroundColor: 'rgba(255, 255, 255, 0.9)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    omzoCaption: {
-        fontSize: 14,
-        lineHeight: 20,
-        marginBottom: 12,
-    },
-    omzoStats: {
-        flexDirection: 'row',
-        gap: 16,
-    },
-    statItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-    },
-    statText: {
-        fontSize: 14,
-        fontWeight: '600',
     },
     // Modal styles
     modalOverlay: {

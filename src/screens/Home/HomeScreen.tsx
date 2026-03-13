@@ -22,6 +22,7 @@ import websocketService from '@/services/websocket';
 import type { Chat, Notification, Story, User } from '@/types';
 import { formatDistanceToNow } from 'date-fns';
 import NotificationDropdown from '@/components/NotificationDropdown';
+import CreateGroupModal from '@/components/CreateGroupModal';
 
 type TabType = 'private' | 'public' | 'groups';
 
@@ -43,6 +44,7 @@ export default function HomeScreen() {
     const [showNotifications, setShowNotifications] = useState(false);
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [storiesData, setStoriesData] = useState<UserWithStories[]>([]);
+    const [createGroupVisible, setCreateGroupVisible] = useState(false);
 
     // Refresh data when screen is focused
     useFocusEffect(
@@ -499,9 +501,21 @@ export default function HomeScreen() {
                 ItemSeparatorComponent={() => null}
             />
 
-            <TouchableOpacity style={[styles.fab, { backgroundColor: colors.primary }]}>
+            <TouchableOpacity 
+                style={[styles.fab, { backgroundColor: colors.primary }]}
+                onPress={() => setCreateGroupVisible(true)}
+            >
                 <Icon name="chatbox-ellipses" size={24} color="#FFFFFF" />
             </TouchableOpacity>
+
+            <CreateGroupModal
+                visible={createGroupVisible}
+                onClose={() => setCreateGroupVisible(false)}
+                onGroupCreated={(chatId) => {
+                    setCreateGroupVisible(false);
+                    navigation.navigate('Chat' as never, { chatId } as never);
+                }}
+            />
         </View>
     );
 }

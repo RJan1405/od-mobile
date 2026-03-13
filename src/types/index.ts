@@ -7,6 +7,7 @@ export interface User {
     full_name: string;
     profile_picture: string;
     profile_picture_url: string;
+    avatar?: string;
     bio?: string;
     is_verified: boolean;
     is_private: boolean;
@@ -80,10 +81,13 @@ export interface Scribe {
     is_disliked?: boolean;
     is_saved?: boolean;
     is_reposted?: boolean;
+    is_repost?: boolean;
     is_following?: boolean;
     original_scribe?: Scribe;
     original_omzo?: Omzo;
     quote_source?: Scribe;
+    original_type?: 'scribe' | 'omzo' | 'story' | 'quote';
+    original_data?: any;
 }
 
 export interface Comment {
@@ -193,6 +197,8 @@ export interface ApiResponse<T = any> {
     is_saved?: boolean;
     is_liked?: boolean;
     is_following?: boolean;
+    followers?: User[];
+    following?: User[];
 }
 
 export interface PaginatedResponse<T> {
