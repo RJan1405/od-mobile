@@ -3,6 +3,7 @@
 This guide explains how to set up odnix-mobile after transferring the project folder to a new location.
 
 ## Prerequisites
+
 - Node.js and npm installed
 - Android Studio installed (with Android SDK)
 
@@ -11,6 +12,7 @@ This guide explains how to set up odnix-mobile after transferring the project fo
 1. **Install JavaScript Dependencies**
    - Open a terminal in the project root.
    - Run:
+
      ```sh
      npm install
      ```
@@ -22,10 +24,13 @@ This guide explains how to set up odnix-mobile after transferring the project fo
 
 3. **Build the Project**
    - From the project root or `android/` folder, run:
+
      ```sh
      ./android/gradlew assembleDebug
      ```
+
      or on Windows:
+
      ```bat
      .\android\gradlew.bat assembleDebug
      ```
@@ -38,22 +43,28 @@ This guide explains how to set up odnix-mobile after transferring the project fo
 
 5. **Start Metro Bundler**
    - In the project root, run:
+
      ```sh
      npx react-native start
      ```
+
      or
+
      ```sh
      npm start
      ```
 
 6. **Build and Run the App**
    - For Android:
+
      ```sh
      npx react-native run-android
      ```
+
      or use Android Studio to run on a device/emulator.
 
 ## Additional Information
+
 - Check `README.md`, `QUICKSTART.md`, and `BUILD_WITH_ANDROID_STUDIO.md` for more details.
 - If you encounter issues, ensure all dependencies are installed and environment variables are set correctly.
 

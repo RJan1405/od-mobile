@@ -1012,9 +1012,24 @@ export default function ProfileScreen() {
                     )}
                     {activeTab === 'reposts' && (
                         reposts.length > 0 ? (
-                            reposts.map(repost => (
-                                <ScribeCard key={repost.id} scribe={repost} />
-                            ))
+                            reposts.map(repost => {
+                                // If repost is a simple repost, pass the original content as scribe
+                                const isSimpleRepost = !!(repost.original_scribe || repost.original_omzo || (repost.original_type && repost.original_data) || repost.is_repost) && !repost.content;
+                                let scribeToShow = repost;
+                                if (isSimpleRepost) {
+                                    // Prefer original_scribe, then original_data, then fallback
+                                    scribeToShow = repost.original_scribe || repost.original_data || repost;
+                                    // Ensure follow state is preserved from repost wrapper if missing
+                                    if (scribeToShow && repost.user && scribeToShow.user && scribeToShow.user.username === repost.user.username) {
+                                        scribeToShow = {
+                                            ...scribeToShow,
+                                            is_following: repost.is_following,
+                                            user: { ...scribeToShow.user, is_following: repost.is_following }
+                                        };
+                                    }
+                                }
+                                return <ScribeCard key={repost.id} scribe={scribeToShow} />;
+                            })
                         ) : (
                             <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
                                 No reposts yet
