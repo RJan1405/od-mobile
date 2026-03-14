@@ -163,6 +163,18 @@ class ApiService {
         }
     }
 
+    async register(data: any): Promise<ApiResponse<User>> {
+        try {
+            const response = await this.api.post('/api/register/', data);
+            if (response.data.success && response.data.user) {
+                await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(response.data.user));
+            }
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
     async logout(): Promise<ApiResponse> {
         try {
             const response = await this.api.post('/api/logout/');
@@ -218,7 +230,17 @@ class ApiService {
     async createChat(username: string): Promise<ApiResponse<{ chatId: number }>> {
         try {
             const response = await this.api.post('/api/create-chat/', { username });
-            return response.data;
+            // Map backend chat_id to frontend chatId and nest in data for UI compatibility
+            const body = response.data;
+            if (body.success) {
+                return {
+                    success: true,
+                    data: {
+                        chatId: body.chat_id || body.chatId
+                    }
+                };
+            }
+            return body;
         } catch (error) {
             return this.handleError(error);
         }

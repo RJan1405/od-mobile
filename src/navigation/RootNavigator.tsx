@@ -10,6 +10,7 @@ import CreateActionModal from '@/components/CreateActionModal';
 
 // Screens
 import LoginScreen from '@/screens/Auth/LoginScreen';
+import SignupScreen from '@/screens/Auth/SignupScreen';
 import HomeScreen from '@/screens/Home/HomeScreen';
 import ChatListScreen from '@/screens/Chat/ChatListScreen';
 import ChatScreen from '@/screens/Chat/ChatScreen';
@@ -31,6 +32,7 @@ import EditProfileScreen from '@/screens/Profile/EditProfileScreen';
 
 export type RootStackParamList = {
     Login: undefined;
+    Signup: undefined;
     Main: undefined;
     Chat: { chatId: number };
     CreateScribe: undefined;
@@ -42,8 +44,8 @@ export type RootStackParamList = {
     Settings: undefined;
     Notifications: undefined;
     OmzoViewer: { omzo: any };
-    VoiceCall: { user: any };
-    VideoCall: { user: any };
+    VoiceCall: { user: any, chatId: number, isIncoming?: boolean };
+    VideoCall: { user: any, chatId: number, isIncoming?: boolean };
     EditProfile: undefined;
 };
 
@@ -204,11 +206,18 @@ export function RootNavigator() {
                 }}
             >
                 {!isAuthenticated ? (
-                    <Stack.Screen
-                        name="Login"
-                        component={LoginScreen}
-                        options={{ headerShown: false }}
-                    />
+                    <>
+                        <Stack.Screen
+                            name="Login"
+                            component={LoginScreen}
+                            options={{ headerShown: false }}
+                        />
+                        <Stack.Screen
+                            name="Signup"
+                            component={SignupScreen}
+                            options={{ headerShown: false }}
+                        />
+                    </>
                 ) : (
                     <>
                         <Stack.Screen

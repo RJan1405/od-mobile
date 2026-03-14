@@ -12,12 +12,14 @@ import {
 } from 'react-native';
 import { useAuthStore } from '@/stores/authStore';
 import { useThemeStore } from '@/stores/themeStore';
+import { useNavigation } from '@react-navigation/native';
 
 export default function LoginScreen() {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const { login, isLoading, error } = useAuthStore();
     const { colors } = useThemeStore();
+    const navigation = useNavigation<any>();
 
     const handleLogin = async () => {
         if (!username || !password) {
@@ -110,7 +112,7 @@ export default function LoginScreen() {
                     <Text style={[styles.footerText, { color: colors.textSecondary }]}>
                         Don't have an account?{' '}
                     </Text>
-                    <TouchableOpacity>
+                    <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
                         <Text style={[styles.footerLink, { color: colors.primary }]}>
                             Sign Up
                         </Text>
