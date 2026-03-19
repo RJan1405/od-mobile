@@ -1,4 +1,5 @@
-import { API_CONFIG } from '@/config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_CONFIG, STORAGE_KEYS } from '@/config';
 import type { Message } from '@/types';
 
 type MessageCallback = (message: Message) => void;
@@ -24,6 +25,33 @@ class WebSocketService {
     private maxReconnectAttempts = 5;
     private reconnectDelay = 3000;
 
+    private authToken: string | null = null;
+    private isLoadingToken = false;
+    private tokenPromise: Promise<string | null> | null = null;
+
+    /**
+     * Keep WebSocket auth token in sync with HTTP auth token.
+     * Call this immediately after login/register/logout.
+     */
+    setAuthToken(token: string | null) {
+        this.authToken = token;
+    }
+
+    async getAuthToken(): Promise<string | null> {
+        if (this.authToken) return this.authToken;
+        
+        if (!this.isLoadingToken) {
+            this.isLoadingToken = true;
+            this.tokenPromise = AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN)
+                .then(token => {
+                    this.authToken = token;
+                    this.isLoadingToken = false;
+                    return token;
+                });
+        }
+        return this.tokenPromise;
+    }
+
     // ==================== CHAT WEBSOCKET ====================
     connectToChat(chatId: number, onMessage: MessageCallback): () => void {
         const wsUrl = `${API_CONFIG.WS_URL}/ws/chat/${chatId}/`;
@@ -44,74 +72,79 @@ class WebSocketService {
         }
 
         // Create new socket
-        const socket = new WebSocket(wsUrl);
-
-        socket.onopen = () => {
-            console.log(`✅ [WebSocket] Connected to chat ${chatId}`);
-            this.reconnectAttempts.delete(`chat_${chatId}`);
-        };
-
-        socket.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                const callbacks = this.messageCallbacks.get(chatId) || [];
-                const readCallbacks = this.readReceiptCallbacks.get(chatId) || [];
-
-                if (data.type === 'message.new') {
-                    callbacks.forEach(cb => cb(data.message));
-                } else if (data.type === 'typing.update') {
-                    // Relay typing updates via message callbacks as typed data
-                    callbacks.forEach(cb => cb({ type: 'typing.update', users: data.users } as any));
-                } else if (data.type === 'message.read') {
-                    readCallbacks.forEach(cb => cb({
-                        message_id: data.message_id,
-                        read_by: data.read_by,
-                        read_at: data.read_at
-                    }));
-                } else if (data.type === 'message.consumed') {
-                    const consumeCallbacks = this.consumedCallbacks.get(chatId) || [];
-                    consumeCallbacks.forEach(cb => cb({
-                        message_id: data.message_id,
-                        consumed_by: data.consumed_by,
-                        consumed_at: data.consumed_at
-                    }));
-                } else if (data.type === 'p2p.signal') {
-                    const p2pCbs = this.p2pCallbacks.get(chatId) || [];
-                    p2pCbs.forEach(cb => cb(data));
-                }
-            } catch (error) {
-                console.error('Error parsing message:', error);
+        this.getAuthToken().then((token) => {
+            const authUrl = token ? `${wsUrl}?token=${token}` : wsUrl;
+            if (this.chatSockets.has(chatId)) {
+                const s = this.chatSockets.get(chatId);
+                if (s && (s.readyState === WebSocket.OPEN || s.readyState === WebSocket.CONNECTING)) return;
             }
-        };
+            const socket = new WebSocket(authUrl);
 
-        socket.onerror = (error) => {
-            console.error(`Chat ${chatId} WebSocket error:`, error);
-        };
+            socket.onopen = () => {
+                console.log(`✅ [WebSocket] Connected to chat ${chatId}`);
+                this.reconnectAttempts.delete(`chat_${chatId}`);
+            };
 
-        socket.onclose = () => {
-            console.log(`🔌 [WebSocket] Disconnected from chat ${chatId}`);
-            this.chatSockets.delete(chatId);
+            socket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    const callbacks = this.messageCallbacks.get(chatId) || [];
+                    const readCallbacks = this.readReceiptCallbacks.get(chatId) || [];
 
-            const attemptKey = `chat_${chatId}`;
-            const attempts = this.reconnectAttempts.get(attemptKey) || 0;
-
-            if (attempts < this.maxReconnectAttempts) {
-                this.reconnectAttempts.set(attemptKey, attempts + 1);
-                const delay = this.reconnectDelay * (attempts + 1); // Exponential backoff
-                console.log(`🔄 [WebSocket] Reconnecting chat ${chatId} in ${delay}ms... (attempt ${attempts + 1}/${this.maxReconnectAttempts})`);
-                setTimeout(() => {
-                    if (this.messageCallbacks.has(chatId) && this.messageCallbacks.get(chatId)!.length > 0) {
-                        // Reconnect with first registered callback (avoids creating duplicates)
-                        const cbs = this.messageCallbacks.get(chatId)!;
-                        if (cbs.length > 0) {
-                            this.connectToChat(chatId, cbs[0]);
-                        }
+                    if (data.type === 'message.new') {
+                        callbacks.forEach((cb: any) => cb(data.message));
+                    } else if (data.type === 'typing.update') {
+                        callbacks.forEach((cb: any) => cb({ type: 'typing.update', users: data.users } as any));
+                    } else if (data.type === 'message.read') {
+                        readCallbacks.forEach((cb: any) => cb({
+                            message_id: data.message_id,
+                            read_by: data.read_by,
+                            read_at: data.read_at
+                        }));
+                    } else if (data.type === 'message.consumed') {
+                        const consumeCallbacks = this.consumedCallbacks.get(chatId) || [];
+                        consumeCallbacks.forEach((cb: any) => cb({
+                            message_id: data.message_id,
+                            consumed_by: data.consumed_by,
+                            consumed_at: data.consumed_at
+                        }));
+                    } else if (data.type === 'p2p.signal') {
+                        const p2pCbs = this.p2pCallbacks.get(chatId) || [];
+                        p2pCbs.forEach((cb: any) => cb(data));
                     }
-                }, delay);
-            }
-        };
+                } catch (error) {
+                    console.error('Error parsing message:', error);
+                }
+            };
 
-        this.chatSockets.set(chatId, socket);
+            socket.onerror = (error) => {
+                console.error(`Chat ${chatId} WebSocket error:`, error);
+            };
+
+            socket.onclose = () => {
+                console.log(`🔌 [WebSocket] Disconnected from chat ${chatId}`);
+                this.chatSockets.delete(chatId);
+
+                const attemptKey = `chat_${chatId}`;
+                const attempts = this.reconnectAttempts.get(attemptKey) || 0;
+
+                if (attempts < this.maxReconnectAttempts) {
+                    this.reconnectAttempts.set(attemptKey, attempts + 1);
+                    const delay = this.reconnectDelay * (attempts + 1);
+                    console.log(`🔄 [WebSocket] Reconnecting chat ${chatId} in ${delay}ms...`);
+                    setTimeout(() => {
+                        if (this.messageCallbacks.has(chatId) && this.messageCallbacks.get(chatId)!.length > 0) {
+                            const cbs = this.messageCallbacks.get(chatId)!;
+                            if (cbs.length > 0) {
+                                this.connectToChat(chatId, cbs[0] as any);
+                            }
+                        }
+                    }, delay);
+                }
+            };
+
+            this.chatSockets.set(chatId, socket);
+        });
 
         return () => this.removeMessageCallback(chatId, onMessage);
     }
@@ -257,42 +290,46 @@ class WebSocketService {
             return () => this.removeNotifyCallback(onEvent);
         }
 
-        const socket = new WebSocket(wsUrl);
+        this.getAuthToken().then((token) => {
+            const authUrl = token ? `${wsUrl}?token=${token}` : wsUrl;
+            if (this.notifySocket?.readyState === WebSocket.OPEN) return;
+            const socket = new WebSocket(authUrl);
 
-        socket.onopen = () => {
-            console.log('Connected to notifications');
-            this.reconnectAttempts.delete('notify');
-        };
+            socket.onopen = () => {
+                console.log('Connected to notifications');
+                this.reconnectAttempts.delete('notify');
+            };
 
-        socket.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                this.notifyCallbacks.forEach(cb => cb(data));
-            } catch (error) {
-                console.error('Error parsing notification:', error);
-            }
-        };
+            socket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    this.notifyCallbacks.forEach(cb => cb(data));
+                } catch (error) {
+                    console.error('Error parsing notification:', error);
+                }
+            };
 
-        socket.onerror = (error) => {
-            console.error('Notifications WebSocket error:', error);
-        };
+            socket.onerror = (error) => {
+                console.error('Notifications WebSocket error:', error);
+            };
 
-        socket.onclose = () => {
-            console.log('Disconnected from notifications');
-            this.notifySocket = null;
+            socket.onclose = () => {
+                console.log('Disconnected from notifications');
+                this.notifySocket = null;
 
-            const attempts = this.reconnectAttempts.get('notify') || 0;
-            if (attempts < this.maxReconnectAttempts && this.notifyCallbacks.length > 0) {
-                this.reconnectAttempts.set('notify', attempts + 1);
-                setTimeout(() => {
-                    if (this.notifyCallbacks.length > 0) {
-                        this.connectToNotifications(onEvent);
-                    }
-                }, this.reconnectDelay);
-            }
-        };
+                const attempts = this.reconnectAttempts.get('notify') || 0;
+                if (attempts < this.maxReconnectAttempts && this.notifyCallbacks.length > 0) {
+                    this.reconnectAttempts.set('notify', attempts + 1);
+                    setTimeout(() => {
+                        if (this.notifyCallbacks.length > 0) {
+                            this.connectToNotifications(onEvent);
+                        }
+                    }, this.reconnectDelay);
+                }
+            };
 
-        this.notifySocket = socket;
+            this.notifySocket = socket;
+        });
 
         return () => this.removeNotifyCallback(onEvent);
     }
@@ -326,42 +363,46 @@ class WebSocketService {
             return () => this.removeSidebarCallback(onEvent);
         }
 
-        const socket = new WebSocket(wsUrl);
+        this.getAuthToken().then((token) => {
+            const authUrl = token ? `${wsUrl}?token=${token}` : wsUrl;
+            if (this.sidebarSocket?.readyState === WebSocket.OPEN) return;
+            const socket = new WebSocket(authUrl);
 
-        socket.onopen = () => {
-            console.log('Connected to sidebar');
-            this.reconnectAttempts.delete('sidebar');
-        };
+            socket.onopen = () => {
+                console.log('Connected to sidebar');
+                this.reconnectAttempts.delete('sidebar');
+            };
 
-        socket.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                this.sidebarCallbacks.forEach(cb => cb(data));
-            } catch (error) {
-                console.error('Error parsing sidebar event:', error);
-            }
-        };
+            socket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    this.sidebarCallbacks.forEach(cb => cb(data));
+                } catch (error) {
+                    console.error('Error parsing sidebar event:', error);
+                }
+            };
 
-        socket.onerror = (error) => {
-            console.error('Sidebar WebSocket error:', error);
-        };
+            socket.onerror = (error) => {
+                console.error('Sidebar WebSocket error:', error);
+            };
 
-        socket.onclose = () => {
-            console.log('Disconnected from sidebar');
-            this.sidebarSocket = null;
+            socket.onclose = () => {
+                console.log('Disconnected from sidebar');
+                this.sidebarSocket = null;
 
-            const attempts = this.reconnectAttempts.get('sidebar') || 0;
-            if (attempts < this.maxReconnectAttempts && this.sidebarCallbacks.length > 0) {
-                this.reconnectAttempts.set('sidebar', attempts + 1);
-                setTimeout(() => {
-                    if (this.sidebarCallbacks.length > 0) {
-                        this.connectToSidebar(onEvent);
-                    }
-                }, this.reconnectDelay);
-            }
-        };
+                const attempts = this.reconnectAttempts.get('sidebar') || 0;
+                if (attempts < this.maxReconnectAttempts && this.sidebarCallbacks.length > 0) {
+                    this.reconnectAttempts.set('sidebar', attempts + 1);
+                    setTimeout(() => {
+                        if (this.sidebarCallbacks.length > 0) {
+                            this.connectToSidebar(onEvent);
+                        }
+                    }, this.reconnectDelay);
+                }
+            };
 
-        this.sidebarSocket = socket;
+            this.sidebarSocket = socket;
+        });
 
         return () => this.removeSidebarCallback(onEvent);
     }
@@ -395,32 +436,36 @@ class WebSocketService {
             return () => this.removeCallCallback(onEvent);
         }
 
-        const socket = new WebSocket(wsUrl);
+        this.getAuthToken().then((token) => {
+            const authUrl = token ? `${wsUrl}?token=${token}` : wsUrl;
+            if (this.callSocket?.readyState === WebSocket.OPEN) return;
+            const socket = new WebSocket(authUrl);
 
-        socket.onopen = () => {
-            console.log(`Connected to call ${chatId}`);
-            this.reconnectAttempts.delete(`call_${chatId}`);
-        };
+            socket.onopen = () => {
+                console.log(`Connected to call ${chatId}`);
+                this.reconnectAttempts.delete(`call_${chatId}`);
+            };
 
-        socket.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                this.callCallbacks.forEach(cb => cb(data));
-            } catch (error) {
-                console.error('Error parsing call event:', error);
-            }
-        };
+            socket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    this.callCallbacks.forEach(cb => cb(data));
+                } catch (error) {
+                    console.error('Error parsing call event:', error);
+                }
+            };
 
-        socket.onerror = (error) => {
-            console.error('Call WebSocket error:', error);
-        };
+            socket.onerror = (error) => {
+                console.error('Call WebSocket error:', error);
+            };
 
-        socket.onclose = () => {
-            console.log('Disconnected from call');
-            this.callSocket = null;
-        };
+            socket.onclose = () => {
+                console.log('Disconnected from call');
+                this.callSocket = null;
+            };
 
-        this.callSocket = socket;
+            this.callSocket = socket;
+        });
 
         return () => this.removeCallCallback(onEvent);
     }

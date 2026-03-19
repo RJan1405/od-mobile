@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_CONFIG, STORAGE_KEYS } from '@/config';
+import websocketService from '@/services/websocket';
 import type { ApiResponse, User, Chat, Message, Scribe, Omzo, OmzoComment, Story, Notification, PaginatedResponse } from '@/types';
 
 // Helper function to convert relative media URLs to absolute URLs
@@ -58,7 +59,9 @@ function processMediaUrls(obj: any, depth: number = 0): any {
 
 class ApiService {
     private api: AxiosInstance;
-    private csrfToken: string | null = null;
+    private authToken: string | null = null;
+    private isLoadingToken = false;
+    private tokenPromise: Promise<string | null> | null = null;
 
     constructor() {
         this.api = axios.create({
@@ -67,47 +70,57 @@ class ApiService {
             headers: {
                 'Content-Type': 'application/json',
             },
-            withCredentials: true, // Important for session-based auth
         });
 
-        // Add request interceptor for auth token and CSRF
+        // Add request interceptor for auth token
         this.api.interceptors.request.use(
             async (config) => {
-                const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
-                if (token) {
-                    config.headers.Authorization = `Token ${token}`;
-                }
+                // Robustly ensure Authorization header is set for every request.
+                // Axios v1 may represent headers as an AxiosHeaders instance; direct property
+                // assignment isn't always reliable across environments, so we normalize/merge.
+                const setAuthHeader = (token: string) => {
+                    const value = `Token ${token}`;
+                    config.headers = {
+                        ...(config.headers as any),
+                        Authorization: value,
+                    } as any;
+                };
 
-                // Add CSRF token for non-GET requests
-                if (config.method && config.method.toUpperCase() !== 'GET') {
-                    if (!this.csrfToken) {
-                        await this.fetchCsrfToken();
+                // Ensure token is loaded before proceeding with any request.
+                // This prevents race conditions on app startup when multiple requests fire.
+                if (!this.authToken) {
+                    if (!this.isLoadingToken) {
+                        this.isLoadingToken = true;
+                        this.tokenPromise = (async () => {
+                            try {
+                                const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+                                if (token) {
+                                    this.authToken = token;
+                                    // Also set default for future requests
+                                    this.api.defaults.headers.common["Authorization"] = `Token ${token}`;
+                                }
+                                return token;
+                            } finally {
+                                this.isLoadingToken = false;
+                            }
+                        })();
                     }
-                    if (this.csrfToken) {
-                        config.headers['X-CSRFToken'] = this.csrfToken;
+                    const token = await this.tokenPromise;
+                    if (token) {
+                        setAuthHeader(token);
                     }
+                } else {
+                    // Regular case: memory token exists
+                    setAuthHeader(this.authToken);
                 }
-
                 return config;
             },
             (error) => Promise.reject(error)
         );
 
-        // Add response interceptor for error handling, CSRF token extraction, and media URL processing
+        // Add response interceptor for error handling and media URL processing
         this.api.interceptors.response.use(
             (response) => {
-                // Extract CSRF token from response cookies if present
-                const setCookie = response.headers['set-cookie'];
-                if (setCookie) {
-                    const csrfCookie = setCookie.find((cookie: string) => cookie.startsWith('csrftoken='));
-                    if (csrfCookie) {
-                        const match = csrfCookie.match(/csrftoken=([^;]+)/);
-                        if (match) {
-                            this.csrfToken = match[1];
-                            console.log('🔐 CSRF token extracted:', this.csrfToken);
-                        }
-                    }
-                }
 
                 // Process response data to convert relative media URLs to absolute
                 if (response.data) {
@@ -127,35 +140,28 @@ class ApiService {
         );
     }
 
-    // Fetch CSRF token from backend
-    private async fetchCsrfToken(): Promise<void> {
-        try {
-            const response = await this.api.get('/api/csrf/');
-            if (response.data && response.data.csrfToken) {
-                this.csrfToken = response.data.csrfToken;
-                console.log('🔐 CSRF token fetched:', this.csrfToken);
-            } else {
-                // Try to get from cookie header
-                const cookie = response.headers['set-cookie'];
-                if (cookie) {
-                    const csrfMatch = cookie.toString().match(/csrftoken=([^;]+)/);
-                    if (csrfMatch) {
-                        this.csrfToken = csrfMatch[1];
-                        console.log('🔐 CSRF token from cookie:', this.csrfToken);
-                    }
-                }
-            }
-        } catch (error) {
-            console.warn('⚠️ Could not fetch CSRF token:', error);
+    // ==================== AUTHENTICATION ====================
+    async initAuth() {
+        const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+        if (token) {
+            this.authToken = token;
+            this.api.defaults.headers.common["Authorization"] = `Token ${token}`;
         }
     }
 
-    // ==================== AUTHENTICATION ====================
     async login(username: string, password: string): Promise<ApiResponse<User>> {
         try {
             const response = await this.api.post('/api/login/', { username, password });
             if (response.data.success && response.data.user) {
                 await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(response.data.user));
+                if (response.data.auth_token) {
+                    const tokenStr = response.data.auth_token;
+                    this.authToken = tokenStr;
+                    await AsyncStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, tokenStr);
+                    // Explicitly set the token on common defaults as requested
+                    this.api.defaults.headers.common["Authorization"] = `Token ${tokenStr}`;
+                    websocketService.setAuthToken(tokenStr);
+                }
             }
             return response.data;
         } catch (error) {
@@ -168,6 +174,14 @@ class ApiService {
             const response = await this.api.post('/api/register/', data);
             if (response.data.success && response.data.user) {
                 await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(response.data.user));
+                if (response.data.auth_token) {
+                    const tokenStr = response.data.auth_token;
+                    this.authToken = tokenStr;
+                    await AsyncStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, tokenStr);
+                    // Explicitly set the token on common defaults
+                    this.api.defaults.headers.common["Authorization"] = `Token ${tokenStr}`;
+                    websocketService.setAuthToken(tokenStr);
+                }
             }
             return response.data;
         } catch (error) {
@@ -180,6 +194,10 @@ class ApiService {
             const response = await this.api.post('/api/logout/');
             await AsyncStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
             await AsyncStorage.removeItem(STORAGE_KEYS.USER_DATA);
+            this.authToken = null;
+            websocketService.setAuthToken(null);
+            // Clear defaults over logout
+            delete this.api.defaults.headers.common["Authorization"];
             return response.data;
         } catch (error) {
             return this.handleError(error);
