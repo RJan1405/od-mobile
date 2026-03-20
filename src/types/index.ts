@@ -19,6 +19,8 @@ export interface User {
     following_count: number;
     post_count?: number;
     is_following?: boolean;
+    follow_request_status?: string | null;
+    is_requesting_follow?: boolean;
 }
 
 export interface Message {
@@ -56,6 +58,10 @@ export interface Chat {
     is_public: boolean;
     created_at: string;
     updated_at: string;
+    is_accepted?: boolean;
+    is_message_request?: boolean;
+    is_other_blocked?: boolean;
+    am_i_blocked?: boolean;
 }
 
 export interface Scribe {
@@ -170,7 +176,7 @@ export interface Notification {
     id: number;
     user: number;
     sender?: User;
-    notification_type: 'message' | 'call' | 'missed_call' | 'follow' | 'like' | 'comment' | 'mention' | 'story_view' | 'story_reply';
+    notification_type: 'message' | 'call' | 'missed_call' | 'follow' | 'follow_request' | 'like' | 'comment' | 'mention' | 'story_view' | 'story_reply';
     title: string;
     message: string;
     data: Record<string, any>;
@@ -199,6 +205,10 @@ export interface ApiResponse<T = any> {
     is_following?: boolean;
     followers?: User[];
     following?: User[];
+    is_accepted?: boolean;
+    is_message_request?: boolean;
+    is_other_blocked?: boolean;
+    am_i_blocked?: boolean;
 }
 
 export interface PaginatedResponse<T> {

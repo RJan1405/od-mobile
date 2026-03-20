@@ -107,7 +107,7 @@ export default function ChatScreen() {
     const navigation = useNavigation();
     const { colors } = useThemeStore();
     const { user } = useAuthStore();
-    const { messages, loadMessages, addMessage, sendMessage, chats, updateMessage, markChatAsRead, consumeMessage } = useChatStore();
+    const { messages, loadMessages, addMessage, sendMessage, chats, updateMessage, markChatAsRead, consumeMessage, manageChatAcceptance } = useChatStore();
     const { chatId } = route.params as { chatId: number };
     const [inputText, setInputText] = useState('');
     const [isTyping, setIsTyping] = useState(false);
@@ -348,8 +348,10 @@ export default function ChatScreen() {
             await sendMessage(chatId, messageText, undefined, undefined, isOneTimeMode);
             setIsOneTimeMode(false); // Reset OTV mode after sending
             flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error sending message:', error);
+            setInputText(messageText); // Restore text so user doesn't lose it
+            Alert.alert('Message Failed', error.message || 'Failed to send message');
         }
     };
 
@@ -436,11 +438,13 @@ export default function ChatScreen() {
                 setIsOneTimeMode(false); // Reset OTV mode
                 flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
             }
-        } catch (err) {
+        } catch (err: any) {
             if (DocumentPicker.isCancel(err)) {
                 // User cancelled the picker
             } else {
-                console.error('Error picking document:', err);
+                console.error('Error sending file:', err);
+                setInputText(inputText.trim()); // Restore text
+                Alert.alert('Upload Failed', err.message || 'Failed to send file');
             }
         }
     };
@@ -822,49 +826,99 @@ export default function ChatScreen() {
                         </TouchableOpacity>
                     </View>
                 )}
+                
+                {currentChat?.is_message_request && (
+                    <View style={[styles.acceptanceContainer, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
+                        <Text style={[styles.acceptanceTitle, { color: colors.text }]}>Message Request</Text>
+                        <Text style={[styles.acceptanceSubtitle, { color: colors.textSecondary }]}>
+                            Do you want to let {currentChat?.name || 'this user'} message you? They won't know you've seen their message until you accept.
+                        </Text>
+                        <View style={styles.acceptanceButtons}>
+                            <TouchableOpacity 
+                                style={[styles.acceptanceButton, { backgroundColor: colors.border }]} 
+                                onPress={() => manageChatAcceptance(chatId, 'block')}
+                            >
+                                <Text style={[styles.acceptanceButtonText, { color: '#EF4444' }]}>Block</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity 
+                                style={[styles.acceptanceButton, { backgroundColor: colors.primary }]} 
+                                onPress={() => manageChatAcceptance(chatId, 'accept')}
+                            >
+                                <Text style={[styles.acceptanceButtonText, { color: '#FFFFFF' }]}>Accept</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                )}
 
-                <View style={[styles.inputContainer, { borderTopColor: colors.border }]}>
-                    <TouchableOpacity
-                        style={[styles.attachButton, isAttachMenuVisible && { backgroundColor: colors.background }]}
-                        onPress={() => setIsAttachMenuVisible(!isAttachMenuVisible)}
-                    >
-                        <Icon name="attach-outline" size={26} color={colors.textSecondary} />
-                    </TouchableOpacity>
+                {!currentChat?.is_message_request && (currentChat?.is_other_blocked || currentChat?.am_i_blocked) && (
+                    <View style={[styles.blockedContainer, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
+                        <Text style={[styles.blockedText, { color: colors.textSecondary }]}>
+                            {currentChat?.is_other_blocked ? "You have blocked this user" : "You cannot message this user"}
+                        </Text>
+                        {currentChat?.is_other_blocked && (
+                            <TouchableOpacity 
+                                onPress={async () => {
+                                    try {
+                                        const otherUser = currentChat.participants.find(p => p.id !== user?.id);
+                                        if (otherUser) {
+                                            await api.toggleBlock(otherUser.id);
+                                            await loadMessages(chatId); // Refresh flags
+                                        }
+                                    } catch (error) {
+                                        console.error('Error unblocking:', error);
+                                    }
+                                }}
+                            >
+                                <Text style={{ color: colors.primary, fontWeight: '600', marginLeft: 12 }}>Unblock</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                )}
 
-                    <View style={[styles.inputWrapper, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                        <TextInput
+                {!currentChat?.is_message_request && !currentChat?.is_other_blocked && !currentChat?.am_i_blocked && (
+                    <View style={[styles.inputContainer, { borderTopColor: colors.border }]}>
+                        <TouchableOpacity
+                            style={[styles.attachButton, isAttachMenuVisible && { backgroundColor: colors.background }]}
+                            onPress={() => setIsAttachMenuVisible(!isAttachMenuVisible)}
+                        >
+                            <Icon name="attach-outline" size={26} color={colors.textSecondary} />
+                        </TouchableOpacity>
+
+                        <View style={[styles.inputWrapper, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                            <TextInput
+                                style={[
+                                    styles.input,
+                                    { color: colors.text },
+                                ]}
+                                placeholder="Type a message..."
+                                placeholderTextColor={colors.textSecondary}
+                                value={inputText}
+                                onChangeText={handleTyping}
+                                multiline
+                                maxLength={1000}
+                            />
+                            <TouchableOpacity style={styles.smileyButton}>
+                                <Icon name="happy-outline" size={24} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                        </View>
+
+                        <TouchableOpacity
                             style={[
-                                styles.input,
-                                { color: colors.text },
+                                styles.sendButton,
+                                { backgroundColor: inputText.trim() ? colors.primary : '#A1C4FD' }
                             ]}
-                            placeholder="Type a message..."
-                            placeholderTextColor={colors.textSecondary}
-                            value={inputText}
-                            onChangeText={handleTyping}
-                            multiline
-                            maxLength={1000}
-                        />
-                        <TouchableOpacity style={styles.smileyButton}>
-                            <Icon name="happy-outline" size={24} color={colors.textSecondary} />
+                            onPress={handleSend}
+                            disabled={!inputText.trim()}
+                        >
+                            <Icon
+                                name="paper-plane"
+                                size={18}
+                                color="#FFFFFF"
+                                style={{ marginLeft: -2 }}
+                            />
                         </TouchableOpacity>
                     </View>
-
-                    <TouchableOpacity
-                        style={[
-                            styles.sendButton,
-                            { backgroundColor: inputText.trim() ? colors.primary : '#A1C4FD' }
-                        ]}
-                        onPress={handleSend}
-                        disabled={!inputText.trim()}
-                    >
-                        <Icon
-                            name="paper-plane"
-                            size={18}
-                            color="#FFFFFF"
-                            style={{ marginLeft: -2 }}
-                        />
-                    </TouchableOpacity>
-                </View>
+                )}
             </View>
 
             {/* One-time View Modal */}
@@ -1099,7 +1153,6 @@ const styles = StyleSheet.create({
         padding: 8,
         justifyContent: 'center',
         alignItems: 'center',
-        marginBottom: 2,
     },
     sendButton: {
         width: 40,
@@ -1108,6 +1161,40 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 4,
+    },
+    acceptanceContainer: {
+        padding: 24,
+        alignItems: 'center',
+        borderTopWidth: 1,
+    },
+    acceptanceTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+        marginBottom: 8,
+    },
+    acceptanceSubtitle: {
+        fontSize: 14,
+        textAlign: 'center',
+        lineHeight: 20,
+        marginBottom: 24,
+        paddingHorizontal: 20,
+    },
+    acceptanceButtons: {
+        flexDirection: 'row',
+        width: '100%',
+        justifyContent: 'space-between',
+    },
+    acceptanceButton: {
+        flex: 1,
+        height: 48,
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginHorizontal: 8,
+    },
+    acceptanceButtonText: {
+        fontSize: 16,
+        fontWeight: '600',
     },
     otvIconContainer: {
         width: 36,
@@ -1209,5 +1296,16 @@ const styles = StyleSheet.create({
         color: '#1C1C1E',
         fontSize: 15,
         fontWeight: '600',
+    },
+    blockedContainer: {
+        padding: 30,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderTopWidth: 1,
+        flexDirection: 'row',
+    },
+    blockedText: {
+        fontSize: 14,
+        textAlign: 'center',
     },
 });

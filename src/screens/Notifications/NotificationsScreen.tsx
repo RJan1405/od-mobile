@@ -101,12 +101,24 @@ export default function NotificationsScreen() {
         }
 
         // Navigate based on notification type
-        if (notification.notification_type === 'follow' && notification.sender) {
-            navigation.navigate('Profile' as never, { username: notification.sender.username } as never);
+        if ((notification.notification_type === 'follow' || notification.notification_type === 'follow_request') && notification.sender) {
+            (navigation as any).navigate('Profile', { username: notification.sender.username });
         } else if (notification.data?.scribe_id) {
-            navigation.navigate('PostDetail' as never, { scribeId: notification.data.scribe_id } as never);
+            (navigation as any).navigate('PostDetail', { scribeId: notification.data.scribe_id });
         } else if (notification.data?.story_id) {
-            navigation.navigate('StoryView' as never, { userId: notification.sender?.id } as never);
+            (navigation as any).navigate('StoryView', { userId: notification.sender?.id });
+        }
+    };
+
+    const handleManageRequest = async (username: string, action: 'accept' | 'decline', notificationId: number) => {
+        try {
+            const response = await api.manageFollowRequest(username, action);
+            if (response.success) {
+                // Remove or update the notification locally
+                setNotifications(prev => prev.filter(n => n.id !== notificationId));
+            }
+        } catch (error) {
+            console.error(`Error ${action}ing follow request:`, error);
         }
     };
 
@@ -116,6 +128,8 @@ export default function NotificationsScreen() {
                 return { name: 'heart', color: '#EF4444' };
             case 'follow':
                 return { name: 'person-add', color: '#3B82F6' };
+            case 'follow_request':
+                return { name: 'person-add-outline', color: '#F59E0B' };
             case 'comment':
                 return { name: 'chatbox-ellipses', color: '#8B5CF6' };
             case 'story_reply':
@@ -184,6 +198,23 @@ export default function NotificationsScreen() {
                     <Text style={[styles.timeText, { color: colors.textSecondary }]}>
                         {formatDistanceToNow(new Date(item.created_at), { addSuffix: true })}
                     </Text>
+
+                    {item.notification_type === 'follow_request' && sender && (
+                        <View style={styles.actionButtons}>
+                            <TouchableOpacity
+                                style={[styles.actionButton, styles.acceptButton]}
+                                onPress={() => handleManageRequest(sender.username, 'accept', item.id)}
+                            >
+                                <Text style={styles.actionButtonText}>Accept</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.actionButton, styles.declineButton, { borderColor: colors.border }]}
+                                onPress={() => handleManageRequest(sender.username, 'decline', item.id)}
+                            >
+                                <Text style={[styles.actionButtonText, { color: colors.textSecondary }]}>Decline</Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
                 </View>
                 {!item.is_read && <View style={[styles.unreadDot, { backgroundColor: '#3B82F6' }]} />}
             </TouchableOpacity>
@@ -343,5 +374,29 @@ const styles = StyleSheet.create({
         fontSize: 14,
         opacity: 0.7,
         textAlign: 'center',
+    },
+    actionButtons: {
+        flexDirection: 'row',
+        marginTop: 10,
+    },
+    actionButton: {
+        paddingHorizontal: 16,
+        paddingVertical: 6,
+        borderRadius: 8,
+        marginRight: 8,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    acceptButton: {
+        backgroundColor: '#3B82F6',
+    },
+    declineButton: {
+        backgroundColor: 'transparent',
+        borderWidth: 1,
+    },
+    actionButtonText: {
+        color: '#FFFFFF',
+        fontWeight: 'bold',
+        fontSize: 13,
     },
 });

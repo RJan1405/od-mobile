@@ -8,17 +8,21 @@ import {
     Alert,
     SafeAreaView,
     StatusBar,
+    Switch,
+    ActivityIndicator,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useThemeStore } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
 import { THEME_INFO, THEME_COLORS } from '@/config';
 import Icon from 'react-native-vector-icons/Ionicons';
+import api from '@/services/api';
 
 export default function SettingsScreen() {
     const navigation = useNavigation();
     const { colors, theme, setTheme } = useThemeStore();
-    const { user, logout } = useAuthStore();
+    const { user, logout, updateUser } = useAuthStore();
+    const [privacyLoading, setPrivacyLoading] = useState(false);
 
     const themeInfo = THEME_INFO[theme];
     const themes = Object.keys(THEME_COLORS) as Array<keyof typeof THEME_COLORS>;
@@ -40,6 +44,28 @@ export default function SettingsScreen() {
 
     const handleThemeSelect = async (themeName: keyof typeof THEME_COLORS) => {
         await setTheme(themeName);
+    };
+
+    const handleTogglePrivacy = async () => {
+        if (privacyLoading) return;
+        
+        setPrivacyLoading(true);
+        try {
+            const response = await api.toggleAccountPrivacy();
+            if (response.success) {
+                // Update local user state
+                if (user) {
+                    updateUser({ ...user, is_private: !user.is_private });
+                }
+            } else {
+                Alert.alert('Error', response.error || 'Failed to update privacy setting');
+            }
+        } catch (error) {
+            console.error('Toggle privacy error:', error);
+            Alert.alert('Error', 'An unexpected error occurred');
+        } finally {
+            setPrivacyLoading(false);
+        }
     };
 
     return (
@@ -113,14 +139,25 @@ export default function SettingsScreen() {
                             <Icon name="chevron-forward" size={20} color={colors.textSecondary} />
                         </TouchableOpacity>
 
-                        <TouchableOpacity
-                            style={[styles.menuItem, { borderBottomColor: colors.border }]}
-                            onPress={() => Alert.alert('Coming Soon', 'Privacy settings')}
-                        >
+                        <View style={[styles.menuItem, { borderBottomColor: colors.border }]}>
                             <Icon name="shield-outline" size={22} color={colors.text} />
-                            <Text style={[styles.menuLabel, { color: colors.text }]}>Privacy</Text>
-                            <Icon name="chevron-forward" size={20} color={colors.textSecondary} />
-                        </TouchableOpacity>
+                            <View style={{ flex: 1 }}>
+                                <Text style={[styles.menuLabel, { color: colors.text }]}>Private Account</Text>
+                                <Text style={{ fontSize: 12, color: colors.textSecondary }}>
+                                    Only followers can see your posts
+                                </Text>
+                            </View>
+                            {privacyLoading ? (
+                                <ActivityIndicator size="small" color={colors.primary} />
+                            ) : (
+                                <Switch
+                                    value={user?.is_private}
+                                    onValueChange={handleTogglePrivacy}
+                                    trackColor={{ false: colors.border, true: colors.primary + '80' }}
+                                    thumbColor={user?.is_private ? colors.primary : '#f4f3f4'}
+                                />
+                            )}
+                        </View>
 
                         <TouchableOpacity
                             style={[styles.menuItem, { borderBottomColor: colors.border }]}
@@ -133,7 +170,7 @@ export default function SettingsScreen() {
 
                         <TouchableOpacity
                             style={[styles.menuItem, { borderBottomColor: colors.border }]}
-                            onPress={() => Alert.alert('Coming Soon', 'Blocked users list')}
+                            onPress={() => navigation.navigate('BlockedUsers' as never)}
                         >
                             <Icon name="ban-outline" size={22} color={colors.text} />
                             <Text style={[styles.menuLabel, { color: colors.text }]}>Blocked Users</Text>

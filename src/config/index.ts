@@ -4,8 +4,8 @@ import { API_BASE_URL, WS_BASE_URL } from '@env';
 // For Android emulator: Use 10.0.2.2
 // For physical phone: Use your computer's local IP (run: ipconfig)
 export const API_CONFIG = {
-    BASE_URL: API_BASE_URL || 'https://odnixdeploy.onrender.com',
-    WS_URL: WS_BASE_URL || 'wss://odnixdeploy.onrender.com',
+    BASE_URL: API_BASE_URL || 'http://localhost:8000',
+    WS_URL: WS_BASE_URL || 'ws://localhost:8000',
     TIMEOUT: 30000,
 };
 

@@ -29,6 +29,7 @@ import SettingsScreen from '@/screens/Settings/SettingsScreen';
 import VoiceCallScreen from '@/screens/Call/VoiceCallScreen';
 import VideoCallScreen from '@/screens/Call/VideoCallScreen';
 import EditProfileScreen from '@/screens/Profile/EditProfileScreen';
+import BlockedUsersScreen from '@/screens/Settings/BlockedUsersScreen';
 
 export type RootStackParamList = {
     Login: undefined;
@@ -47,6 +48,7 @@ export type RootStackParamList = {
     VoiceCall: { user: any, chatId: number, isIncoming?: boolean };
     VideoCall: { user: any, chatId: number, isIncoming?: boolean };
     EditProfile: undefined;
+    BlockedUsers: undefined;
 };
 
 export type MainTabParamList = {
@@ -288,6 +290,11 @@ export function RootNavigator() {
                         <Stack.Screen
                             name="EditProfile"
                             component={EditProfileScreen}
+                            options={{ headerShown: false }}
+                        />
+                        <Stack.Screen
+                            name="BlockedUsers"
+                            component={BlockedUsersScreen}
                             options={{ headerShown: false }}
                         />
                     </>

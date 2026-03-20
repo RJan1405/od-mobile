@@ -354,6 +354,28 @@ class ApiService {
         }
     }
 
+    async manageChatAcceptance(chatId: number, action: 'accept' | 'block'): Promise<ApiResponse> {
+        try {
+            const response = await this.api.post('/api/manage-chat-acceptance/', { chat_id: chatId, action });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async getBlockedUsers(): Promise<ApiResponse<User[]>> {
+        try {
+            const response = await this.api.get('/api/blocked-users/');
+            // Backend returns { success: true, users: [...] }
+            if (response.data.success) {
+                return { success: true, data: response.data.users };
+            }
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
     // ==================== SCRIBES (POSTS) ====================
     async getExploreFeed(page: number = 1): Promise<ApiResponse<PaginatedResponse<Scribe>>> {
         try {
@@ -600,6 +622,15 @@ class ApiService {
         }
     }
 
+    async manageFollowRequest(username: string, action: 'accept' | 'decline'): Promise<ApiResponse> {
+        try {
+            const response = await this.api.post('/api/manage-follow-request/', { username, action });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
     async getFollowers(username: string): Promise<ApiResponse<User[]>> {
         try {
             const response = await this.api.get(`/api/profile/${username}/followers/`);
@@ -667,6 +698,10 @@ class ApiService {
                     case 'follow':
                         notificationType = 'follow';
                         message = 'started following you';
+                        break;
+                    case 'follow_request':
+                        notificationType = 'follow_request';
+                        message = 'requested to follow you';
                         break;
                     case 'story_like':
                         notificationType = 'like';
@@ -736,6 +771,15 @@ class ApiService {
     async toggleAccountPrivacy(): Promise<ApiResponse> {
         try {
             const response = await this.api.post('/api/toggle-account-privacy/');
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async toggleBlock(userId: number): Promise<ApiResponse> {
+        try {
+            const response = await this.api.post('/api/toggle-block/', { user_id: userId });
             return response.data;
         } catch (error) {
             return this.handleError(error);

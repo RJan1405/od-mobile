@@ -48,16 +48,17 @@ export default function ProfileScreen() {
     const [isLoading, setIsLoading] = useState(true);
     const [isLoadingSaved, setIsLoadingSaved] = useState(false);
     const [activeTab, setActiveTab] = useState<'scribes' | 'reposts' | 'omzos' | 'saved'>('scribes');
-
     // Global stores — shared across all screens/components
-    const { followStates, setFollowState, batchSetFollowStates } = useFollowStore();
+    const { followStates, setFollowState, batchSetFollowStates, getRequestStatus } = useFollowStore();
     const { interactions, setInteraction } = useInteractionStore();
     const { repostStates, setRepostState } = useRepostStore(); // keep for proxy compatibility if needed elsewhere
-    const profileUsername = username || currentUser?.username || '';
+    const profileUsername = (username || currentUser?.username || '').toLowerCase();
     const isFollowing = followStates[profileUsername] ?? false;
+    const followRequestStatus = getRequestStatus(profileUsername) ?? null;
 
     const themeInfo = THEME_INFO[theme];
     const isOwnProfile = !username || username === currentUser?.username;
+    const isPrivate = user?.is_private && !isFollowing && !isOwnProfile;
 
     useEffect(() => {
         loadProfile();
@@ -96,10 +97,9 @@ export default function ProfileScreen() {
                 if (response.success && (response.data || response.user)) {
                     const profileData = (response.data || response.user) as User;
                     setUser(profileData);
-
-                    // Use getFollowStates as single authoritative source (same as ExploreScreen)
-                    // Seed initial value from profile response while we wait
-                    setFollowState(username, (profileData as any).is_following || false);
+                    const initialRequestStatus = (profileData as any).follow_request_status || null;
+                    const initialIsFollowing = profileData.is_following ?? false;
+                    setFollowState(profileUsername, initialIsFollowing, initialRequestStatus);
 
                     const scribesRaw = response.scribes || [];
                     const repostsRaw = response.reposts || [];
@@ -114,9 +114,10 @@ export default function ProfileScreen() {
                         if (!statesResponse.success || !states) return;
 
                         const nowFollowing = states[username]?.is_following ?? (profileData as any).is_following ?? false;
+                        const nowRequestStatus = (states[username] as any)?.follow_request_status ?? (profileData as any).follow_request_status ?? null;
 
                         // Update global store — propagates to all mounted subscribers
-                        setFollowState(username, nowFollowing);
+                        setFollowState(username, nowFollowing, nowRequestStatus);
 
                         // Stamp is_following onto every scribe so ScribeCard initializes correctly
                         setScribes(prev => prev.map(s => ({
@@ -182,30 +183,38 @@ export default function ProfileScreen() {
     const handleFollow = async () => {
         if (!user) return;
         const prevFollowing = isFollowing;
+        const prevRequestStatus = followRequestStatus;
+        
+        // Only update optimistically for PUBLIC accounts OR when unfollowing
+        // For private accounts, we don't want to show "Following" (isFollowing=true) if it's just a request
+        const shouldUpdateOptimistically = !user.is_private || isFollowing;
         const newFollowing = !isFollowing;
 
-        // Optimistic update — global store propagates instantly to all subscribers
-        setFollowState(profileUsername, newFollowing);
-        setUser(prev => prev ? {
-            ...prev,
-            follower_count: newFollowing ? prev.follower_count + 1 : Math.max(0, prev.follower_count - 1),
-        } : null);
+        if (shouldUpdateOptimistically) {
+            setFollowState(profileUsername, newFollowing);
+            setUser(prev => prev ? {
+                ...prev,
+                follower_count: newFollowing ? prev.follower_count + 1 : Math.max(0, prev.follower_count - 1),
+            } : null);
+        } else if (user.is_private) {
+            // For private account follow attempt — show "Requested" optimistically if not already following
+            setFollowState(profileUsername, isFollowing, 'pending');
+        }
 
         try {
             const response = await api.toggleFollow(user.username);
             if (response.success) {
-                // Authoritative server state
-                const nowFollowing = (response as any).is_following ?? newFollowing;
+                const nowFollowing = (response as any).is_following ?? (shouldUpdateOptimistically ? newFollowing : false);
+                const nowRequestStatus = (response as any).follow_request_status || null;
+                
+                setFollowState(profileUsername, nowFollowing, nowRequestStatus);
 
-                // Update global store with authoritative value
-                setFollowState(profileUsername, nowFollowing);
-
-                // Update viewed profile's follower_count
+                // Re-sync follower count with authoritative result
                 setUser(prev => prev ? {
                     ...prev,
-                    follower_count: nowFollowing
-                        ? prev.follower_count + (prevFollowing ? 0 : 1)  // only add if wasn't already following
-                        : Math.max(0, prev.follower_count - (prevFollowing ? 1 : 0)),
+                    follower_count: nowFollowing 
+                        ? (prevFollowing ? prev.follower_count : prev.follower_count + 1)
+                        : (prevFollowing ? Math.max(0, prev.follower_count - 1) : prev.follower_count),
                 } : null);
 
                 // Update MY following_count in authStore
@@ -214,28 +223,16 @@ export default function ProfileScreen() {
                     updateUser({
                         ...me,
                         following_count: nowFollowing
-                            ? me.following_count + 1
-                            : Math.max(0, me.following_count - 1),
+                            ? me.following_count + (prevFollowing ? 0 : 1)
+                            : Math.max(0, me.following_count - (prevFollowing ? 1 : 0)),
                     });
                 }
             } else {
-                // Revert on failure
-                setFollowState(profileUsername, prevFollowing);
-                setUser(prev => prev ? {
-                    ...prev,
-                    follower_count: prevFollowing
-                        ? prev.follower_count + 1
-                        : Math.max(0, prev.follower_count - 1),
-                } : null);
+                // Revert
+                setFollowState(profileUsername, prevFollowing, prevRequestStatus);
             }
         } catch {
-            setFollowState(profileUsername, prevFollowing);
-            setUser(prev => prev ? {
-                ...prev,
-                follower_count: prevFollowing
-                    ? prev.follower_count + 1
-                    : Math.max(0, prev.follower_count - 1),
-            } : null);
+            setFollowState(profileUsername, prevFollowing, prevRequestStatus);
         }
     };
 
@@ -413,14 +410,14 @@ export default function ProfileScreen() {
                                     style={[
                                         styles.followButton,
                                         {
-                                            backgroundColor: isFollowing ? colors.background : colors.primary,
-                                            borderWidth: isFollowing ? 1 : 0,
+                                            backgroundColor: (isFollowing || followRequestStatus === 'pending') ? colors.background : colors.primary,
+                                            borderWidth: (isFollowing || followRequestStatus === 'pending') ? 1 : 0,
                                             borderColor: colors.border,
                                         },
                                     ]}
                                 >
-                                    <Text style={[styles.followButtonText, { color: isFollowing ? colors.text : '#FFFFFF' }]}>
-                                        {isFollowing ? 'Following' : 'Follow'}
+                                    <Text style={[styles.followButtonText, { color: (isFollowing || followRequestStatus === 'pending') ? colors.text : '#FFFFFF' }]}>
+                                        {isFollowing ? 'Following' : followRequestStatus === 'pending' ? 'Requested' : 'Follow'}
                                     </Text>
                                 </TouchableOpacity>
 
@@ -432,18 +429,41 @@ export default function ProfileScreen() {
                                 </TouchableOpacity>
 
                                 <TouchableOpacity
-                                    onPress={() => handleCall('voice')}
-                                    style={[styles.iconButton, { borderColor: colors.border, backgroundColor: colors.background, borderWidth: 1 }]}
-                                >
-                                    <Icon name="call-outline" size={20} color={colors.text} />
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
                                     onPress={() => handleCall('video')}
                                     style={[styles.iconButton, { borderColor: colors.border, backgroundColor: colors.background, borderWidth: 1 }]}
                                 >
                                     <Icon name="videocam-outline" size={20} color={colors.text} />
                                 </TouchableOpacity>
+                            </View>
+                        )}
+
+                        {!isOwnProfile && user?.is_requesting_follow && (
+                            <View style={[styles.requestActionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                                <Text style={[styles.requestText, { color: colors.text }]}>@{user.username} wants to follow you</Text>
+                                <View style={styles.requestButtons}>
+                                    <TouchableOpacity
+                                        style={[styles.requestButton, styles.acceptRequestButton]}
+                                        onPress={async () => {
+                                            const res = await api.manageFollowRequest(user.username, 'accept');
+                                            if (res.success) {
+                                                setUser(prev => prev ? { ...prev, is_requesting_follow: false } : null);
+                                            }
+                                        }}
+                                    >
+                                        <Text style={styles.requestButtonText}>Accept</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[styles.requestButton, styles.declineRequestButton, { borderColor: colors.border }]}
+                                        onPress={async () => {
+                                            const res = await api.manageFollowRequest(user.username, 'decline');
+                                            if (res.success) {
+                                                setUser(prev => prev ? { ...prev, is_requesting_follow: false } : null);
+                                            }
+                                        }}
+                                    >
+                                        <Text style={[styles.requestButtonText, { color: colors.textSecondary }]}>Decline</Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
                         )}
                     </View>
@@ -554,17 +574,29 @@ export default function ProfileScreen() {
 
                 {/* Tab Content */}
                 <View style={styles.content}>
-                    {activeTab === 'scribes' && (
-                        scribes.length > 0 ? (
-                            scribes.map(scribe => (
-                                <ScribeCard key={scribe.id} scribe={scribe} />
-                            ))
-                        ) : (
-                            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-                                No scribes yet
+                    {isPrivate ? (
+                        <View style={styles.privateContainer}>
+                            <View style={[styles.privateIconCircle, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                                <Icon name="lock-closed" size={40} color={colors.text} />
+                            </View>
+                            <Text style={[styles.privateTitle, { color: colors.text }]}>This account is private</Text>
+                            <Text style={[styles.privateSubtitle, { color: colors.textSecondary }]}>
+                                Follow this account to see their scribes and omzos.
                             </Text>
-                        )
-                    )}
+                        </View>
+                    ) : (
+                        <>
+                            {activeTab === 'scribes' && (
+                                scribes.length > 0 ? (
+                                    scribes.map(scribe => (
+                                        <ScribeCard key={scribe.id} scribe={scribe} />
+                                    ))
+                                ) : (
+                                    <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+                                        No scribes yet
+                                    </Text>
+                                )
+                            )}
 
 
 
@@ -1036,6 +1068,8 @@ export default function ProfileScreen() {
                             </Text>
                         )
                     )}
+                        </>
+                    )}
                 </View>
             </ScrollView>
         </SafeAreaView>
@@ -1343,5 +1377,64 @@ const styles = StyleSheet.create({
     headerIconWrapper: {
         marginLeft: 15,
         padding: 5,
+    },
+    privateContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 60,
+        paddingHorizontal: 40,
+    },
+    privateIconCircle: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        borderWidth: 2,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 16,
+    },
+    privateTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+        marginBottom: 8,
+    },
+    privateSubtitle: {
+        fontSize: 14,
+        textAlign: 'center',
+        lineHeight: 20,
+    },
+    requestActionCard: {
+        marginTop: 16,
+        padding: 16,
+        borderRadius: 12,
+        borderWidth: 1,
+    },
+    requestText: {
+        fontSize: 14,
+        fontWeight: '600',
+        marginBottom: 12,
+        textAlign: 'center',
+    },
+    requestButtons: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+    },
+    requestButton: {
+        paddingHorizontal: 24,
+        paddingVertical: 8,
+        borderRadius: 8,
+        marginHorizontal: 6,
+    },
+    acceptRequestButton: {
+        backgroundColor: '#3B82F6',
+    },
+    declineRequestButton: {
+        backgroundColor: 'transparent',
+        borderWidth: 1,
+    },
+    requestButtonText: {
+        color: '#FFFFFF',
+        fontWeight: 'bold',
+        fontSize: 14,
     },
 });

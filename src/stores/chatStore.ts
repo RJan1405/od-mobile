@@ -25,6 +25,7 @@ interface ChatState {
     markChatAsRead: (chatId: number) => Promise<void>;
     updateUnreadCounts: () => Promise<void>;
     updateChatUnreadCount: (chatId: number, count: number) => void;
+    manageChatAcceptance: (chatId: number, action: 'accept' | 'block') => Promise<void>;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -122,7 +123,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
             // Backend returns { messages: [...], chat_updated: "..." }
             // The API service returns response.data which is the Django JSON response
             const messagesData = (response as any).messages || [];
-            console.log('✅ Found', messagesData.length, 'messages');
+            const isAccepted = (response as any).is_accepted ?? true;
+            const isMessageRequest = (response as any).is_message_request ?? false;
+            console.log('✅ Found', messagesData.length, 'messages', { isAccepted, isMessageRequest });
+
+            // Update the chat in our chats list with acceptance and block status
+            set(state => ({
+                chats: state.chats.map(c => 
+                    c.id === chatId ? { 
+                        ...c, 
+                        is_accepted: isAccepted, 
+                        is_message_request: isMessageRequest,
+                        is_other_blocked: (response as any).is_other_blocked,
+                        am_i_blocked: (response as any).am_i_blocked
+                    } : c
+                ),
+                currentChat: state.currentChat?.id === chatId ? { 
+                    ...state.currentChat, 
+                    is_accepted: isAccepted, 
+                    is_message_request: isMessageRequest,
+                    is_other_blocked: (response as any).is_other_blocked,
+                    am_i_blocked: (response as any).am_i_blocked
+                } : state.currentChat
+            }));
 
             // Transform to mobile format (matching React frontend logic)
             const transformedMessages = messagesData.map((m: any, index: number) => {
@@ -168,8 +191,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
             });
 
             console.log('📝 Transformed to', transformedMessages.length, 'messages');
+            
             const messages = get().messages;
             messages.set(chatId, transformedMessages);
+            
             set({ messages: new Map(messages) });
         } catch (error) {
             console.error('❌ Error loading messages:', error);
@@ -325,6 +350,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 get().addMessage(chatId, sentMessage);
             } else {
                 console.error('❌ Send message failed:', response);
+                throw new Error(response.error || 'Failed to send message');
             }
         } catch (error) {
             console.error('❌ Error sending message:', error);
@@ -457,5 +483,40 @@ export const useChatStore = create<ChatState>((set, get) => ({
             chat.id === chatId ? { ...chat, unread_count: count } : chat
         );
         set({ chats });
+    },
+
+    manageChatAcceptance: async (chatId: number, action: 'accept' | 'block') => {
+        try {
+            const response = await api.manageChatAcceptance(chatId, action);
+            if (response.success) {
+                // Update chat acceptance and block status in the list
+                set(state => ({
+                    chats: state.chats.map(c =>
+                        c.id === chatId ? {
+                            ...c,
+                            is_accepted: response.is_accepted,
+                            is_message_request: response.is_message_request,
+                            is_other_blocked: response.is_other_blocked,
+                            am_i_blocked: response.am_i_blocked
+                        } : c
+                    ),
+                    currentChat: state.currentChat?.id === chatId ? {
+                        ...state.currentChat,
+                        is_accepted: response.is_accepted,
+                        is_message_request: response.is_message_request,
+                        is_other_blocked: response.is_other_blocked,
+                        am_i_blocked: response.am_i_blocked
+                    } : state.currentChat
+                }));
+
+                // If blocking, remove the chat from the list
+                if (action === 'block') {
+                    const chats = get().chats.filter(c => c.id !== chatId);
+                    set({ chats });
+                }
+            }
+        } catch (error) {
+            console.error('Error in manageChatAcceptance:', error);
+        }
     },
 }));

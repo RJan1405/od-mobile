@@ -62,7 +62,7 @@ export default function ExploreScreen() {
     const navigation = useNavigation();
     const { colors } = useThemeStore();
     const { user } = useAuthStore();
-    const { followStates, setFollowState, batchSetFollowStates } = useFollowStore();
+    const { followStates, requestStatuses, setFollowState, batchSetFollowStates } = useFollowStore();
     const { interactions, setInteraction, batchSetInteractions } = useInteractionStore();
     const { repostStates, setRepostState } = useRepostStore();
     const [searchQuery, setSearchQuery] = useState('');
@@ -240,10 +240,14 @@ export default function ExploreScreen() {
 
             // Seed global store
             const toSeed: Record<string, boolean> = {};
+            const requestsToSeed: Record<string, string | null> = {};
             for (const uname of usernames) {
-                if (states[uname] !== undefined) toSeed[uname] = states[uname].is_following;
+                if (states[uname] !== undefined) {
+                    toSeed[uname] = states[uname].is_following;
+                    requestsToSeed[uname] = (states[uname] as any).follow_request_status || null;
+                }
             }
-            batchSetFollowStates(toSeed);
+            batchSetFollowStates(toSeed, requestsToSeed);
         } catch (e) {
             // non-critical
         }
@@ -915,12 +919,20 @@ export default function ExploreScreen() {
             const response = await api.toggleFollow(username);
             if (response.success) {
                 const nowFollowing = (response as any).is_following ?? newFollowing;
+                const requestStatus = (response as any).follow_request_status || null;
 
                 // Authoritative update in global store
-                setFollowState(username, nowFollowing);
+                setFollowState(username, nowFollowing, requestStatus);
                 setExploreFeed(prev => prev.map(feedItem =>
                     feedItem.user?.username === username
-                        ? { ...feedItem, user: { ...feedItem.user, isFollowing: nowFollowing } }
+                        ? { 
+                            ...feedItem, 
+                            user: { 
+                                ...feedItem.user, 
+                                isFollowing: nowFollowing,
+                                follow_request_status: requestStatus 
+                            } 
+                          }
                         : feedItem
                 ));
 
@@ -969,6 +981,7 @@ export default function ExploreScreen() {
 
             // Read follow state from global store (updated instantly on any toggle)
             const isItemFollowing = followStates[username] ?? item.data?.is_following ?? false;
+            const followRequestStatus = requestStatuses[username] ?? item.data?.follow_request_status ?? null;
             // Don't show follow button for current user's own profile
             const isOwnProfile = user?.username === username;
 
@@ -1015,10 +1028,10 @@ export default function ExploreScreen() {
                             <Text
                                 style={[
                                     styles.followButtonText,
-                                    isItemFollowing && { color: colors.text },
+                                    (isItemFollowing || followRequestStatus === 'pending') && { color: colors.text },
                                 ]}
                             >
-                                {isItemFollowing ? 'Following' : 'Follow'}
+                                {isItemFollowing ? 'Following' : (followRequestStatus === 'pending' ? 'Requested' : 'Follow')}
                             </Text>
                         </TouchableOpacity>
                     )}
@@ -1119,7 +1132,9 @@ export default function ExploreScreen() {
             const thumbUri: string | null = item.thumbnailUrl || item.thumbnail_url || null;
             const hasThumb = thumbUri && thumbUri.startsWith('http');
             const isOwnOmzo = user?.username === item.user?.username;
-            const isFollowingOmzoUser = item.user?.isFollowing || false;
+            const omzoUsername = item.user?.username || '';
+            const isFollowingOmzoUser = followStates[omzoUsername] ?? item.user?.isFollowing ?? false;
+            const omzoRequestStatus = requestStatuses[omzoUsername] ?? (item.user as any)?.follow_request_status ?? null;
 
             return (
                 <TouchableOpacity
@@ -1177,10 +1192,10 @@ export default function ExploreScreen() {
                                 <Text
                                     style={[
                                         styles.exploreFollowBtnText,
-                                        isFollowingOmzoUser && { color: '#9CA3AF' },
+                                        (isFollowingOmzoUser || omzoRequestStatus === 'pending') && { color: '#9CA3AF' },
                                     ]}
                                 >
-                                    {isFollowingOmzoUser ? 'Following' : 'Follow'}
+                                    {isFollowingOmzoUser ? 'Following' : (omzoRequestStatus === 'pending' ? 'Requested' : 'Follow')}
                                 </Text>
                             </TouchableOpacity>
                         )}
