@@ -2,7 +2,7 @@ import axios, { AxiosInstance, AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_CONFIG, STORAGE_KEYS } from '@/config';
 import websocketService from '@/services/websocket';
-import type { ApiResponse, User, Chat, Message, Scribe, Omzo, OmzoComment, Story, Notification, PaginatedResponse } from '@/types';
+import type { ApiResponse, User, Chat, Message, Scribe, Comment, Omzo, OmzoComment, Story, Notification, PaginatedResponse } from '@/types';
 
 // Helper function to convert relative media URLs to absolute URLs
 function convertToAbsoluteUrl(url: string | null | undefined): string {
@@ -179,6 +179,60 @@ class ApiService {
                     this.authToken = tokenStr;
                     await AsyncStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, tokenStr);
                     // Explicitly set the token on common defaults
+                    this.api.defaults.headers.common["Authorization"] = `Token ${tokenStr}`;
+                    websocketService.setAuthToken(tokenStr);
+                }
+            }
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async checkAvailability(data: { username?: string, email?: string, phone_number?: string }): Promise<ApiResponse> {
+        try {
+            const response = await this.api.post('/api/check-availability/', data);
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async firebaseRegister(idToken: string, registrationData: any): Promise<ApiResponse<User>> {
+        try {
+            const response = await this.api.post('/api/firebase-register/', { 
+                idToken, 
+                registrationData 
+            });
+            if (response.data.success && response.data.user) {
+                await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(response.data.user));
+                if (response.data.auth_token) {
+                    const tokenStr = response.data.auth_token;
+                    this.authToken = tokenStr;
+                    await AsyncStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, tokenStr);
+                    this.api.defaults.headers.common["Authorization"] = `Token ${tokenStr}`;
+                    websocketService.setAuthToken(tokenStr);
+                }
+            }
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async verifyPhoneOtp(otp: string, userId?: number, phoneNumber?: string): Promise<ApiResponse<User>> {
+        try {
+            const response = await this.api.post('/api/verify-phone-otp/', { 
+                user_id: userId, 
+                phone_number: phoneNumber,
+                otp 
+            });
+            if (response.data.success && response.data.user) {
+                await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(response.data.user));
+                if (response.data.auth_token) {
+                    const tokenStr = response.data.auth_token;
+                    this.authToken = tokenStr;
+                    await AsyncStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, tokenStr);
                     this.api.defaults.headers.common["Authorization"] = `Token ${tokenStr}`;
                     websocketService.setAuthToken(tokenStr);
                 }
@@ -455,6 +509,15 @@ class ApiService {
         }
     }
 
+    async getScribeComments(scribeId: number): Promise<ApiResponse<Comment[]>> {
+        try {
+            const response = await this.api.get(`/api/scribe/${scribeId}/comments/`);
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
     async addComment(scribeId: number, content: string, parentId?: number): Promise<ApiResponse> {
         try {
             const response = await this.api.post('/api/add-comment/', {
@@ -520,11 +583,12 @@ class ApiService {
         }
     }
 
-    async addOmzoComment(omzoId: number, content: string): Promise<ApiResponse<OmzoComment>> {
+    async addOmzoComment(omzoId: number, content: string, parentId?: number): Promise<ApiResponse<OmzoComment>> {
         try {
             const response = await this.api.post('/api/omzo/comment/', {
                 omzo_id: omzoId,
                 content,
+                parent_id: parentId,
             });
             return response.data;
         } catch (error) {

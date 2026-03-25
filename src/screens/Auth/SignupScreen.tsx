@@ -23,8 +23,10 @@ export default function SignupScreen() {
     const [confirmPassword, setConfirmPassword] = useState('');
     const [name, setName] = useState('');
     const [lastname, setLastname] = useState('');
+    const [countryCode, setCountryCode] = useState('+91');
+    const [phoneNumber, setPhoneNumber] = useState('');
     
-    const { register, isLoading, error } = useAuthStore();
+    const { sendFirebaseOtp, checkAvailability, isLoading, error } = useAuthStore();
     const { colors } = useThemeStore();
     const navigation = useNavigation<any>();
 
@@ -33,8 +35,8 @@ export default function SignupScreen() {
     };
 
     const handleSignup = async () => {
-        if (!username || !email || !password || !name || !lastname) {
-            Alert.alert('Error', 'Please fill in all fields');
+        if (!username || !email || !password || !name || !lastname || !phoneNumber) {
+            Alert.alert('Error', 'Please fill in all fields (including phone number)');
             return;
         }
 
@@ -53,10 +55,39 @@ export default function SignupScreen() {
             return;
         }
 
-        const success = await register({ username, email, password, name, lastname });
+        // Store the registration data for later use in OTPScreen
+        const registrationData = {
+            username,
+            email,
+            password,
+            name,
+            lastname
+        };
 
-        if (!success && error) {
-            Alert.alert('Signup Failed', error);
+        // Combine country code and phone number
+        let rawPhone = (countryCode + phoneNumber).trim().replace(/\s+/g, '');
+        let formattedPhone = rawPhone;
+        
+        if (!formattedPhone.startsWith('+')) {
+            formattedPhone = '+' + formattedPhone;
+        }
+
+        const checkRes = await checkAvailability({ username, email, phone_number: formattedPhone });
+        if (!checkRes.success) {
+            Alert.alert('Registration Error', checkRes.error || 'Details already exist');
+            return;
+        }
+
+        const success = await sendFirebaseOtp(formattedPhone);
+
+        if (success) {
+            navigation.navigate('OTP', { 
+                phoneNumber: formattedPhone, 
+                registrationData,
+                isFirebase: true 
+            });
+        } else if (error) {
+            Alert.alert('Verification Error', typeof error === 'string' ? error : 'Failed to send SMS');
         }
     };
 
@@ -77,7 +108,7 @@ export default function SignupScreen() {
                     <View
                         style={[styles.logoContainer, { backgroundColor: colors.primary }]}
                     >
-                        <Text style={styles.logo}>O</Text>
+                        <Text style={styles.logo}>Odnix</Text>
                     </View>
 
                     <Text style={[styles.title, { color: colors.text }]}>
@@ -125,6 +156,30 @@ export default function SignupScreen() {
                                 value={email}
                                 onChangeText={setEmail}
                                 keyboardType="email-address"
+                                autoCapitalize="none"
+                                autoCorrect={false}
+                                editable={!isLoading}
+                            />
+                        </View>
+
+                        <View style={[styles.inputContainer, styles.phoneInputContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                            <Icon name="call-outline" size={20} color={colors.textSecondary} style={styles.inputInnerIcon} />
+                            <TextInput
+                                style={[styles.countryCodeInput, { color: colors.text }]}
+                                value={countryCode}
+                                onChangeText={setCountryCode}
+                                keyboardType="phone-pad"
+                                maxLength={5}
+                                editable={!isLoading}
+                            />
+                            <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                            <TextInput
+                                style={[styles.phoneInputField, { color: colors.text }]}
+                                placeholder="Phone Number"
+                                placeholderTextColor={colors.textSecondary}
+                                value={phoneNumber}
+                                onChangeText={setPhoneNumber}
+                                keyboardType="phone-pad"
                                 autoCapitalize="none"
                                 autoCorrect={false}
                                 editable={!isLoading}
@@ -266,9 +321,9 @@ const styles = StyleSheet.create({
         zIndex: 10,
     },
     logoContainer: {
-        width: 80,
-        height: 80,
-        borderRadius: 24,
+        width: 120,
+        height: 120,
+        borderRadius: 60,
         justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 24,
@@ -285,8 +340,8 @@ const styles = StyleSheet.create({
         }),
     },
     logo: {
-        fontSize: 40,
-        fontWeight: '900',
+        fontSize: 36,
+        fontWeight: 'bold',
         color: '#FFFFFF',
     },
     title: {
@@ -311,6 +366,10 @@ const styles = StyleSheet.create({
         left: 16,
         zIndex: 1,
     },
+    inputInnerIcon: {
+        marginLeft: 16,
+        marginRight: 12,
+    },
     input: {
         flex: 1,
         height: 56,
@@ -319,6 +378,33 @@ const styles = StyleSheet.create({
         paddingLeft: 48,
         fontSize: 16,
         borderWidth: 1,
+    },
+    phoneInputContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        height: 56,
+        borderRadius: 16,
+        borderWidth: 1,
+        paddingHorizontal: 0,
+        marginBottom: 16,
+    },
+    countryCodeInput: {
+        width: 50,
+        height: '100%',
+        fontSize: 16,
+        textAlign: 'center',
+        fontWeight: '600',
+    },
+    divider: {
+        width: 1,
+        height: '40%',
+        marginHorizontal: 4,
+    },
+    phoneInputField: {
+        flex: 1,
+        height: '100%',
+        paddingHorizontal: 12,
+        fontSize: 16,
     },
     row: {
         flexDirection: 'row',

@@ -29,6 +29,7 @@ import { useInteractionStore } from '@/stores/interactionStore';
 import { useRepostStore } from '@/stores/repostStore';
 import api from '@/services/api';
 import ScribeCard from '@/components/ScribeCard';
+import ScribeCommentsSheet from '@/components/ScribeCommentsSheet';
 import type { User, Scribe, Omzo } from '@/types';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -79,6 +80,9 @@ export default function ExploreScreen() {
     const [selectedOmzo, setSelectedOmzo] = useState<any | null>(null);
     const [isModalVisible, setIsModalVisible] = useState(false);
     const [isOmzoModalVisible, setIsOmzoModalVisible] = useState(false);
+    const [isCommentsVisible, setIsCommentsVisible] = useState(false);
+    const [commentScribeId, setCommentScribeId] = useState<number | null>(null);
+    const [commentCountForSheet, setCommentCountForSheet] = useState(0);
 
     // Refs to prevent concurrent fetches and track loaded state
     const isLoadingRef = useRef(false);
@@ -330,23 +334,26 @@ export default function ExploreScreen() {
     const openOmzoModal = (item: any) => {
         // Transform and navigate to full screen omzo viewer
         const transformedItem = {
+            ...item,
             id: item.id,
-            user: item.user,
+            comments: item.comments || 0,
+            likes: item.likes || 0,
+            isLiked: item.isLiked || false,
             video_file: item.videoUrl,
             video_url: item.videoUrl,
-            videoUrl: item.videoUrl,
-            url: item.videoUrl,
-            caption: item.caption || '',
-            created_at: item.created_at || item.createdAt,
-            views_count: item.views || 0,
-            like_count: item.likes || 0,
-            dislike_count: item.dislikes || 0,
-            comment_count: item.comments || 0,
-            is_liked: item.isLiked || false,
-            is_disliked: item.isDisliked || false,
-            is_saved: item.isSaved || false,
+            user: {
+                ...item.user,
+                username: item.user?.username || item.user_username,
+                avatar: item.user?.avatar || item.user_profile_picture
+            }
         };
         navigation.navigate('OmzoViewer' as never, { omzo: transformedItem } as never);
+    };
+
+    const openScribeComments = (scribeId: string | number, initialCount: number) => {
+        setCommentScribeId(typeof scribeId === 'string' ? parseInt(scribeId) : scribeId);
+        setCommentCountForSheet(initialCount);
+        setIsCommentsVisible(true);
     };
 
     const closeOmzoModal = () => {
@@ -513,9 +520,11 @@ export default function ExploreScreen() {
     };
 
     const handleModalComment = () => {
-        // Navigate to scribe detail with comments
-        closeScribeModal();
-        // navigation.navigate('ScribeDetail' as never, { scribeId: selectedScribe.id } as never);
+        if (selectedScribe) {
+            setCommentScribeId(parseInt(selectedScribe.id));
+            setCommentCountForSheet(modalCommentCount);
+            setIsCommentsVisible(true);
+        }
     };
 
     const handleAddComment = async () => {
@@ -1121,7 +1130,8 @@ export default function ExploreScreen() {
                 <ScribeCard
                     key={`scribe-${item.id}`}
                     scribe={scribe}
-                    onPress={() => openScribeModal(item)}
+                    onPress={() => openScribeModal(scribe)}
+                    onCommentPress={() => openScribeComments(scribe.id, scribe.comment_count || 0)}
                     onSaveToggle={(scribeId, isSaved) => updateFeedItem(item.id, { isSaved })}
                 />
             );
@@ -1362,11 +1372,13 @@ export default function ExploreScreen() {
                             style={styles.cardAction}
                             onPress={(e) => {
                                 e.stopPropagation();
-                                openScribeModal(item);
+                                openScribeComments(item.id, item.comments || 0);
                             }}
                         >
                             <Icon name="chatbubble-outline" size={18} color={colors.textSecondary} />
-                            <Text style={[styles.cardStatText, { color: colors.textSecondary }]}>{item.comments || 0}</Text>
+                            <Text style={[styles.cardStatText, { color: colors.textSecondary }]}>
+                                {interactions[`scribe_${item.id}`]?.comment_count ?? item.comments ?? 0}
+                            </Text>
                         </TouchableOpacity>
                         <TouchableOpacity 
                             style={styles.cardAction}
@@ -1479,9 +1491,17 @@ export default function ExploreScreen() {
                                     {formatCount(interactions[`omzo_${item.id}`]?.like_count ?? (item.likes || 0))}
                                 </Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.omzoStatItem}>
+                            <TouchableOpacity 
+                                style={styles.omzoStatItem}
+                                onPress={(e) => {
+                                    e.stopPropagation();
+                                    openOmzoModal(item);
+                                }}
+                            >
                                 <Icon name="chatbubble-outline" size={16} color="#FFFFFF" />
-                                <Text style={styles.omzoStatText}>{item.comments || 0}</Text>
+                                <Text style={styles.omzoStatText}>
+                                    {interactions[`omzo_${item.id}`]?.comment_count ?? item.comments ?? 0}
+                                </Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                                 style={styles.omzoStatItem}
@@ -1902,6 +1922,21 @@ export default function ExploreScreen() {
                     </TouchableOpacity>
                 </TouchableOpacity>
             </Modal>
+            
+            {commentScribeId && (
+                <ScribeCommentsSheet
+                    isVisible={isCommentsVisible}
+                    onClose={() => setIsCommentsVisible(false)}
+                    scribeId={commentScribeId}
+                    initialCommentCount={commentCountForSheet}
+                    onCommentAdded={() => {
+                        setModalCommentCount(prev => prev + 1);
+                        if (selectedScribe) {
+                            updateFeedItem(selectedScribe.id, { comments: modalCommentCount + 1 });
+                        }
+                    }}
+                />
+            )}
         </View>
     );
 }

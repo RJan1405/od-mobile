@@ -24,6 +24,7 @@ interface ScribeCardProps {
     scribe: Scribe;
     onSaveToggle?: (scribeId: number, isSaved: boolean) => void;
     onPress?: () => void;
+    onCommentPress?: () => void;
 }
 
 // Format counts (1K, 1M)
@@ -101,7 +102,7 @@ const ScribeImage = ({ uri }: { uri: string }) => {
     );
 };
 
-export default function ScribeCard({ scribe, onSaveToggle, onPress }: ScribeCardProps) {
+export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPress }: ScribeCardProps) {
     const navigation = useNavigation();
     const { colors } = useThemeStore();
     const { user: currentUser } = useAuthStore();
@@ -162,7 +163,8 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress }: ScribeCard
                 like_count: displayScribe.like_count || 0,
                 is_saved: displayScribe.is_saved || false,
                 is_reposted: displayScribe.is_reposted || isSimpleRepost,
-                repost_count: displayScribe.repost_count || 0
+                repost_count: displayScribe.repost_count || 0,
+                comment_count: displayScribe.comment_count || 0
             });
         }
     }, [displayScribe.id, interactions[interactionKey]]);
@@ -591,10 +593,10 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress }: ScribeCard
                 </TouchableOpacity>
 
                 {/* Comment */}
-                <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7}>
+                <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7} onPress={onCommentPress || onPress}>
                     <Icon name="chatbubble-outline" size={20} color="#9CA3AF" />
                     <Text style={styles.actionCount}>
-                        {formatCount(displayScribe.comment_count || 0)}
+                        {formatCount(interactions[interactionKey]?.comment_count ?? displayScribe.comment_count ?? 0)}
                     </Text>
                 </TouchableOpacity>
 

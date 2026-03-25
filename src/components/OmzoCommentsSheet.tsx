@@ -18,6 +18,7 @@ import { useThemeStore } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
 import api from '@/services/api';
 import type { OmzoComment } from '@/types';
+import { useInteractionStore } from '@/stores/interactionStore';
 
 interface OmzoCommentsSheetProps {
     isVisible: boolean;
@@ -36,10 +37,35 @@ export default function OmzoCommentsSheet({
 }: OmzoCommentsSheetProps) {
     const { colors, theme } = useThemeStore();
     const { user } = useAuthStore();
+    const incrementCommentCount = useInteractionStore(state => state.incrementCommentCount);
     const [comments, setComments] = useState<OmzoComment[]>([]);
     const [commentText, setCommentText] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [expandedComments, setExpandedComments] = useState<Set<number>>(new Set());
+
+    const [replyingTo, setReplyingTo] = useState<OmzoComment | null>(null);
+    const inputRef = React.useRef<TextInput>(null);
+    const scrollViewRef = React.useRef<ScrollView>(null);
+    const [scrollOffset, setScrollOffset] = useState<number>(0);
+
+    const handleScrollTo = (p: any) => {
+        if (scrollViewRef.current) {
+            scrollViewRef.current.scrollTo(p);
+        }
+    };
+
+    const toggleReplies = (commentId: number) => {
+        setExpandedComments(prev => {
+            const next = new Set(prev);
+            if (next.has(commentId)) {
+                next.delete(commentId);
+            } else {
+                next.add(commentId);
+            }
+            return next;
+        });
+    };
 
     useEffect(() => {
         if (isVisible) {
@@ -53,7 +79,27 @@ export default function OmzoCommentsSheet({
             const response = await api.getOmzoComments(omzoId);
             console.log('📝 Omzo comments response:', response);
             if (response.success && (response as any).comments) {
-                setComments((response as any).comments);
+                const fetchedComments = (response as any).comments;
+                
+                // Group comments if they are flat and have parent references
+                const commentMap = new Map();
+                const rootComments: any[] = [];
+
+                fetchedComments.forEach((c: any) => {
+                    commentMap.set(c.id, { ...c, replies: [] });
+                });
+
+                fetchedComments.forEach((c: any) => {
+                    const current = commentMap.get(c.id);
+                    if (c.parent && commentMap.has(c.parent)) {
+                        const parent = commentMap.get(c.parent);
+                        parent.replies.push(current);
+                    } else if (!c.parent) {
+                        rootComments.push(current);
+                    }
+                });
+
+                setComments(rootComments.length > 0 ? rootComments : fetchedComments);
             }
         } catch (error) {
             console.error('Error loading comments:', error);
@@ -67,11 +113,41 @@ export default function OmzoCommentsSheet({
 
         setIsSubmitting(true);
         try {
-            const response = await api.addOmzoComment(omzoId, commentText.trim());
+            const response = await api.addOmzoComment(omzoId, commentText.trim(), replyingTo?.id);
             console.log('📝 Add comment response:', response);
             if (response.success && (response as any).comment) {
-                setComments(prev => [(response as any).comment, ...prev]);
+                const newComment = { ...(response as any).comment, replies: [] };
+                
+                if (replyingTo) {
+                    // Update state to nest the reply
+                    setComments(prev => prev.map(c => {
+                        if (c.id === replyingTo.id || (c as any).replies?.some((r: any) => r.id === replyingTo.id)) {
+                             // If it's a direct reply or a reply to a reply
+                             if (c.id === replyingTo.id) {
+                                if (!expandedComments.has(c.id)) toggleReplies(c.id);
+                                return { ...c, replies: [...(c as any).replies, newComment] };
+                             } else {
+                                // Nested search (though we only support 1 level usually)
+                                return {
+                                    ...c,
+                                    replies: (c as any).replies.map((r: any) => 
+                                        r.id === replyingTo.id ? { ...r, replies: [...(r.replies || []), newComment] } : r
+                                    )
+                                };
+                             }
+                        }
+                        return c;
+                    }));
+                } else {
+                    setComments(prev => [newComment, ...prev]);
+                }
+
                 setCommentText('');
+                setReplyingTo(null);
+
+                // Update global store
+                incrementCommentCount('omzo', omzoId);
+
                 // Notify parent component
                 if (onCommentAdded) {
                     onCommentAdded();
@@ -84,7 +160,19 @@ export default function OmzoCommentsSheet({
         }
     };
 
+    const handleReply = (comment: OmzoComment) => {
+        setReplyingTo(comment);
+        setCommentText(`@${comment.user?.username} `);
+        inputRef.current?.focus();
+    };
+
+    const cancelReply = () => {
+        setReplyingTo(null);
+        setCommentText('');
+    };
+
     const formatTime = (timestamp: string) => {
+        if (!timestamp) return '';
         const date = new Date(timestamp);
         const now = new Date();
         const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
@@ -96,10 +184,86 @@ export default function OmzoCommentsSheet({
         return `${Math.floor(diff / 604800)}w`;
     };
 
+    const renderComment = (item: OmzoComment, isReply = false) => {
+        const avatarUri = item.user?.profile_picture_url || (item.user as any)?.avatar || '';
+        const hasValidAvatar = avatarUri && avatarUri.startsWith('http');
+        const replies = (item as any).replies || [];
+
+        return (
+            <View key={`comment-${item.id}`} style={[styles.commentItem, isReply && styles.replyItem]}>
+                {hasValidAvatar ? (
+                    <Image source={{ uri: avatarUri }} style={isReply ? styles.replyAvatar : styles.commentAvatar} />
+                ) : (
+                    <View style={[isReply ? styles.replyAvatar : styles.commentAvatar, { backgroundColor: colors.primary }]}>
+                        <Text style={isReply ? styles.replyAvatarText : styles.avatarText}>
+                            {item.user?.username?.[0]?.toUpperCase() || '?'}
+                        </Text>
+                    </View>
+                )}
+                <View style={styles.commentContent}>
+                    <View style={styles.commentHeader}>
+                        <Text style={[styles.commentUsername, { color: colors.text }]}>
+                            @{item.user.username}
+                        </Text>
+                        <Text style={[styles.commentTime, { color: colors.textSecondary }]}>
+                            {formatTime(item.created_at || item.timestamp)}
+                        </Text>
+                    </View>
+                    <Text style={[styles.commentText, { color: colors.text }]}>
+                        {item.content}
+                    </Text>
+                    <View style={styles.commentActions}>
+                        <TouchableOpacity style={styles.actionButton} activeOpacity={0.7}>
+                            <Icon name={item.is_liked ? "heart" : "heart-outline"} size={16} color={item.is_liked ? "#EF4444" : colors.textSecondary} />
+                            <Text style={[styles.actionText, { color: colors.textSecondary }]}>
+                                {item.like_count || 0}
+                            </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={styles.actionButton}
+                            activeOpacity={0.7}
+                            onPress={() => handleReply(item)}
+                        >
+                            <Text style={[styles.actionText, { color: colors.textSecondary }]}>Reply</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Render Replies Toggle */}
+                    {!isReply && replies.length > 0 && (
+                        <TouchableOpacity 
+                            style={styles.viewRepliesButton} 
+                            onPress={() => toggleReplies(item.id)}
+                        >
+                            <View style={[styles.repliesLine, { backgroundColor: colors.border }]} />
+                            <Text style={[styles.viewRepliesText, { color: colors.textSecondary }]}>
+                                {expandedComments.has(item.id) 
+                                    ? 'Hide replies' 
+                                    : `View ${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}`}
+                            </Text>
+                        </TouchableOpacity>
+                    )}
+
+                    {/* Render Replies */}
+                    {!isReply && replies.length > 0 && expandedComments.has(item.id) && (
+                        <View style={styles.repliesList}>
+                            {replies.map((reply: OmzoComment) => renderComment(reply, true))}
+                        </View>
+                    )}
+                </View>
+            </View>
+        );
+    };
+
     return (
         <Modal
             isVisible={isVisible}
             onBackdropPress={onClose}
+            onSwipeComplete={onClose}
+            swipeDirection="down"
+            propagateSwipe={true}
+            scrollTo={handleScrollTo}
+            scrollOffset={scrollOffset}
+            scrollOffsetMax={100}
             style={styles.modal}
         >
             <View style={[styles.container, { backgroundColor: colors.surface }]}>
@@ -138,52 +302,14 @@ export default function OmzoCommentsSheet({
                         </View>
                     ) : (
                         <ScrollView
+                            ref={scrollViewRef}
+                            onScroll={(e) => setScrollOffset(e.nativeEvent.contentOffset.y)}
+                            scrollEventThrottle={16}
                             showsVerticalScrollIndicator={true}
                             nestedScrollEnabled={true}
                             contentContainerStyle={styles.commentsList}
                         >
-                            {comments.map((item) => {
-                                const avatarUri = item.user?.profile_picture_url || (item.user as any)?.avatar || '';
-                                const hasValidAvatar = avatarUri && avatarUri.startsWith('http');
-
-                                return (
-                                    <View key={`comment-${item.id}`} style={styles.commentItem}>
-                                        {hasValidAvatar ? (
-                                            <Image source={{ uri: avatarUri }} style={styles.commentAvatar} />
-                                        ) : (
-                                            <View style={[styles.commentAvatar, { backgroundColor: colors.primary }]}>
-                                                <Text style={styles.avatarText}>
-                                                    {item.user?.username?.[0]?.toUpperCase() || '?'}
-                                                </Text>
-                                            </View>
-                                        )}
-                                        <View style={styles.commentContent}>
-                                            <View style={styles.commentHeader}>
-                                                <Text style={[styles.commentUsername, { color: colors.text }]}>
-                                                    @{item.user.username}
-                                                </Text>
-                                                <Text style={[styles.commentTime, { color: colors.textSecondary }]}>
-                                                    {formatTime(item.created_at)}
-                                                </Text>
-                                            </View>
-                                            <Text style={[styles.commentText, { color: colors.text }]}>
-                                                {item.content}
-                                            </Text>
-                                            <View style={styles.commentActions}>
-                                                <TouchableOpacity style={styles.actionButton} activeOpacity={0.7}>
-                                                    <Icon name={item.is_liked ? "heart" : "heart-outline"} size={16} color={item.is_liked ? "#EF4444" : colors.textSecondary} />
-                                                    <Text style={[styles.actionText, { color: colors.textSecondary }]}>
-                                                        {item.like_count || 0}
-                                                    </Text>
-                                                </TouchableOpacity>
-                                                <TouchableOpacity style={styles.actionButton} activeOpacity={0.7}>
-                                                    <Text style={[styles.actionText, { color: colors.textSecondary }]}>Reply</Text>
-                                                </TouchableOpacity>
-                                            </View>
-                                        </View>
-                                    </View>
-                                );
-                            })}
+                            {comments.map((item) => renderComment(item))}
                         </ScrollView>
                     )}
                 </View>
@@ -193,6 +319,16 @@ export default function OmzoCommentsSheet({
                     behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                     keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
                 >
+                    {replyingTo && (
+                        <View style={[styles.replyingIndicator, { backgroundColor: theme === 'dark' ? '#1F2937' : '#F3F4F6' }]}>
+                            <Text style={[styles.replyingText, { color: colors.textSecondary }]}>
+                                Replying to <Text style={{ fontWeight: '700', color: colors.primary }}>@{replyingTo.user?.username}</Text>
+                            </Text>
+                            <TouchableOpacity onPress={cancelReply}>
+                                <Icon name="close-circle" size={20} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                        </View>
+                    )}
                     <View style={[styles.inputContainer, { borderTopColor: colors.border }]}>
                         {user?.profile_picture_url ? (
                             <Image
@@ -207,8 +343,9 @@ export default function OmzoCommentsSheet({
                             </View>
                         )}
                         <TextInput
+                            ref={inputRef}
                             style={[styles.input, { color: colors.text, backgroundColor: colors.background }]}
-                            placeholder="Add a comment..."
+                            placeholder={replyingTo ? "Add a reply..." : "Add a comment..."}
                             placeholderTextColor={colors.textSecondary}
                             value={commentText}
                             onChangeText={setCommentText}
@@ -358,6 +495,18 @@ const styles = StyleSheet.create({
         marginLeft: 4,
         fontWeight: '600',
     },
+    replyingIndicator: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 20,
+        paddingVertical: 8,
+        borderTopLeftRadius: 10,
+        borderTopRightRadius: 10,
+    },
+    replyingText: {
+        fontSize: 13,
+    },
     inputContainer: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -383,5 +532,42 @@ const styles = StyleSheet.create({
     sendButton: {
         marginLeft: 8,
         padding: 8,
+    },
+    replyItem: {
+        marginLeft: 40,
+        marginTop: 10,
+        marginBottom: 10,
+    },
+    replyAvatar: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        marginRight: 10,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    replyAvatarText: {
+        color: '#FFFFFF',
+        fontSize: 14,
+        fontWeight: '600',
+    },
+    viewRepliesButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginLeft: 4,
+        marginTop: 8,
+        paddingVertical: 4,
+    },
+    repliesLine: {
+        width: 30,
+        height: 1,
+        marginRight: 10,
+    },
+    viewRepliesText: {
+        fontSize: 13,
+        fontWeight: '600',
+    },
+    repliesList: {
+        marginTop: 10,
     },
 });

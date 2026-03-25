@@ -43,6 +43,30 @@ export default function ScribeCommentsSheet({
     const [isLoading, setIsLoading] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    const [replyingTo, setReplyingTo] = useState<Comment | null>(null);
+    const [expandedComments, setExpandedComments] = useState<Set<number>>(new Set());
+    const inputRef = React.useRef<TextInput>(null);
+    const scrollViewRef = React.useRef<ScrollView>(null);
+    const [scrollOffset, setScrollOffset] = useState<number>(0);
+
+    const handleScrollTo = (p: any) => {
+        if (scrollViewRef.current) {
+            scrollViewRef.current.scrollTo(p);
+        }
+    };
+
+    const toggleReplies = (commentId: number) => {
+        setExpandedComments(prev => {
+            const next = new Set(prev);
+            if (next.has(commentId)) {
+                next.delete(commentId);
+            } else {
+                next.add(commentId);
+            }
+            return next;
+        });
+    };
+
     useEffect(() => {
         if (isVisible) {
             loadComments();
@@ -69,14 +93,36 @@ export default function ScribeCommentsSheet({
 
         setIsSubmitting(true);
         try {
-            const response = await api.addComment(scribeId, commentText.trim());
+            const response = await api.addComment(
+                scribeId, 
+                commentText.trim(),
+                replyingTo?.id
+            );
             console.log('📝 Add comment response:', response);
              if (response.success && (response as any).comment) {
-                setComments(prev => [(response as any).comment, ...prev]);
+                const newComment = (response as any).comment;
+                
+                if (replyingTo) {
+                    // Update the local state to show the reply in the correct place
+                    setComments(prev => prev.map(c => {
+                        if (c.id === replyingTo.id) {
+                            return {
+                                ...c,
+                                replies: [...(c.replies || []), newComment],
+                                reply_count: (c.reply_count || 0) + 1
+                            };
+                        }
+                        return c;
+                    }));
+                } else {
+                    setComments(prev => [newComment, ...prev]);
+                }
+                
                 setCommentText('');
+                setReplyingTo(null);
                 
                 // Update global store for real-time sync across screens
-                incrementCommentCount(scribeId);
+                incrementCommentCount('scribe', scribeId);
 
                 // Notify parent component
                 if (onCommentAdded) {
@@ -90,7 +136,19 @@ export default function ScribeCommentsSheet({
         }
     };
 
+    const handleReply = (comment: Comment) => {
+        setReplyingTo(comment);
+        setCommentText(`@${comment.user?.username || (comment as any).user_username} `);
+        inputRef.current?.focus();
+    };
+
+    const cancelReply = () => {
+        setReplyingTo(null);
+        setCommentText('');
+    };
+
     const formatTime = (timestamp: string) => {
+        if (!timestamp) return '';
         const date = new Date(timestamp);
         const now = new Date();
         const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
@@ -102,10 +160,88 @@ export default function ScribeCommentsSheet({
         return `${Math.floor(diff / 604800)}w`;
     };
 
+    const renderComment = (item: Comment, isReply = false) => {
+        const username = item.user?.username || (item as any).user_username || 'unknown';
+        const avatarUri = item.user?.profile_picture_url || (item.user as any)?.avatar || (item as any).user_profile_picture || '';
+        const hasValidAvatar = avatarUri && avatarUri.startsWith('http');
+
+        return (
+            <View key={`comment-${item.id}`} style={[styles.commentItem, isReply && styles.replyItem]}>
+                {hasValidAvatar ? (
+                    <Image source={{ uri: avatarUri }} style={isReply ? styles.replyAvatar : styles.commentAvatar} />
+                ) : (
+                    <View style={[isReply ? styles.replyAvatar : styles.commentAvatar, { backgroundColor: colors.primary }]}>
+                        <Text style={styles.avatarText}>
+                            {username[0]?.toUpperCase() || '?'}
+                        </Text>
+                    </View>
+                )}
+                <View style={styles.commentContent}>
+                    <View style={styles.commentHeader}>
+                        <Text style={[styles.commentUsername, { color: colors.text }]}>
+                            @{username}
+                        </Text>
+                        <Text style={[styles.commentTime, { color: colors.textSecondary }]}>
+                            {formatTime(item.timestamp || (item as any).created_at)}
+                        </Text>
+                    </View>
+                    <Text style={[styles.commentText, { color: colors.text }]}>
+                        {item.content}
+                    </Text>
+                    <View style={styles.commentActions}>
+                        <TouchableOpacity style={styles.actionButton} activeOpacity={0.7}>
+                            <Icon name={(item as any).is_liked ? "heart" : "heart-outline"} size={16} color={(item as any).is_liked ? "#EF4444" : colors.textSecondary} />
+                            <Text style={[styles.actionText, { color: colors.textSecondary }]}>
+                                {item.like_count || 0}
+                            </Text>
+                        </TouchableOpacity>
+                        {!isReply && (
+                            <TouchableOpacity 
+                                style={styles.actionButton} 
+                                activeOpacity={0.7}
+                                onPress={() => handleReply(item)}
+                            >
+                                <Text style={[styles.actionText, { color: colors.textSecondary }]}>Reply</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+
+                    {/* Render Replies Toggle */}
+                    {!isReply && (item as any).replies && (item as any).replies.length > 0 && (
+                        <TouchableOpacity 
+                            style={styles.viewRepliesButton} 
+                            onPress={() => toggleReplies(item.id)}
+                        >
+                            <View style={[styles.repliesLine, { backgroundColor: colors.border }]} />
+                            <Text style={[styles.viewRepliesText, { color: colors.textSecondary }]}>
+                                {expandedComments.has(item.id) 
+                                    ? 'Hide replies' 
+                                    : `View ${(item as any).replies.length} ${ (item as any).replies.length === 1 ? 'reply' : 'replies'}`}
+                            </Text>
+                        </TouchableOpacity>
+                    )}
+
+                    {/* Render Replies */}
+                    {!isReply && (item as any).replies && (item as any).replies.length > 0 && expandedComments.has(item.id) && (
+                        <View style={styles.repliesList}>
+                            {(item as any).replies.map((reply: Comment) => renderComment(reply, true))}
+                        </View>
+                    )}
+                </View>
+            </View>
+        );
+    };
+
     return (
         <Modal
             isVisible={isVisible}
             onBackdropPress={onClose}
+            onSwipeComplete={onClose}
+            swipeDirection="down"
+            propagateSwipe={true}
+            scrollTo={handleScrollTo}
+            scrollOffset={scrollOffset}
+            scrollOffsetMax={100}
             style={styles.modal}
         >
             <View style={[styles.container, { backgroundColor: colors.surface }]}>
@@ -144,53 +280,14 @@ export default function ScribeCommentsSheet({
                         </View>
                     ) : (
                         <ScrollView
+                            ref={scrollViewRef}
+                            onScroll={(e) => setScrollOffset(e.nativeEvent.contentOffset.y)}
+                            scrollEventThrottle={16}
                             showsVerticalScrollIndicator={true}
                             nestedScrollEnabled={true}
                             contentContainerStyle={styles.commentsList}
                         >
-                            {comments.map((item) => {
-                                const username = item.user?.username || (item as any).user_username || 'unknown';
-                                const avatarUri = item.user?.profile_picture_url || (item.user as any)?.avatar || (item as any).user_profile_picture || '';
-                                const hasValidAvatar = avatarUri && avatarUri.startsWith('http');
-
-                                return (
-                                    <View key={`comment-${item.id}`} style={styles.commentItem}>
-                                        {hasValidAvatar ? (
-                                            <Image source={{ uri: avatarUri }} style={styles.commentAvatar} />
-                                        ) : (
-                                            <View style={[styles.commentAvatar, { backgroundColor: colors.primary }]}>
-                                                <Text style={styles.avatarText}>
-                                                    {username[0]?.toUpperCase() || '?'}
-                                                </Text>
-                                            </View>
-                                        )}
-                                        <View style={styles.commentContent}>
-                                            <View style={styles.commentHeader}>
-                                                <Text style={[styles.commentUsername, { color: colors.text }]}>
-                                                    @{username}
-                                                </Text>
-                                                <Text style={[styles.commentTime, { color: colors.textSecondary }]}>
-                                                    {formatTime(item.timestamp || (item as any).created_at)}
-                                                </Text>
-                                            </View>
-                                            <Text style={[styles.commentText, { color: colors.text }]}>
-                                                {item.content}
-                                            </Text>
-                                            <View style={styles.commentActions}>
-                                                <TouchableOpacity style={styles.actionButton} activeOpacity={0.7}>
-                                                    <Icon name={item.is_liked ? "heart" : "heart-outline"} size={16} color={item.is_liked ? "#EF4444" : colors.textSecondary} />
-                                                    <Text style={[styles.actionText, { color: colors.textSecondary }]}>
-                                                        {item.like_count || 0}
-                                                    </Text>
-                                                </TouchableOpacity>
-                                                <TouchableOpacity style={styles.actionButton} activeOpacity={0.7}>
-                                                    <Text style={[styles.actionText, { color: colors.textSecondary }]}>Reply</Text>
-                                                </TouchableOpacity>
-                                            </View>
-                                        </View>
-                                    </View>
-                                );
-                            })}
+                            {comments.map((item) => renderComment(item))}
                         </ScrollView>
                     )}
                 </View>
@@ -200,6 +297,16 @@ export default function ScribeCommentsSheet({
                     behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                     keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
                 >
+                    {replyingTo && (
+                        <View style={[styles.replyingIndicator, { backgroundColor: theme === 'dark' ? '#1F2937' : '#F3F4F6' }]}>
+                            <Text style={[styles.replyingText, { color: colors.textSecondary }]}>
+                                Replying to <Text style={{ fontWeight: '700', color: colors.primary }}>@{replyingTo.user?.username || (replyingTo as any).user_username}</Text>
+                            </Text>
+                            <TouchableOpacity onPress={cancelReply}>
+                                <Icon name="close-circle" size={20} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                        </View>
+                    )}
                     <View style={[styles.inputContainer, { borderTopColor: colors.border }]}>
                         {user?.profile_picture_url ? (
                             <Image
@@ -214,8 +321,9 @@ export default function ScribeCommentsSheet({
                             </View>
                         )}
                         <TextInput
+                            ref={inputRef}
                             style={[styles.input, { color: colors.text, backgroundColor: colors.background }]}
-                            placeholder="Add a comment..."
+                            placeholder={replyingTo ? "Add a reply..." : "Add a comment..."}
                             placeholderTextColor={colors.textSecondary}
                             value={commentText}
                             onChangeText={setCommentText}
@@ -390,5 +498,49 @@ const styles = StyleSheet.create({
     sendButton: {
         marginLeft: 8,
         padding: 8,
+    },
+    replyItem: {
+        marginLeft: 44,
+        marginTop: 8,
+        marginBottom: 12,
+    },
+    replyAvatar: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        marginRight: 10,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    repliesList: {
+        marginTop: 8,
+    },
+    replyingIndicator: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 20,
+        paddingVertical: 8,
+        borderTopLeftRadius: 10,
+        borderTopRightRadius: 10,
+    },
+    replyingText: {
+        fontSize: 13,
+    },
+    viewRepliesButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginLeft: 4,
+        marginTop: 8,
+        paddingVertical: 4,
+    },
+    repliesLine: {
+        width: 30,
+        height: 1,
+        marginRight: 10,
+    },
+    viewRepliesText: {
+        fontSize: 13,
+        fontWeight: '600',
     },
 });

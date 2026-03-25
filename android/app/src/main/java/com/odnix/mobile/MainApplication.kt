@@ -1,4 +1,5 @@
-package com.odnix
+package com.odnix.mobile
+import com.odnix.mobile.BuildConfig
 
 import android.app.Application
 import com.facebook.react.PackageList
@@ -10,15 +11,29 @@ import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.load
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.facebook.react.defaults.DefaultReactNativeHost
 import com.facebook.soloader.SoLoader
+import io.invertase.firebase.app.ReactNativeFirebaseAppPackage
+import io.invertase.firebase.auth.ReactNativeFirebaseAuthPackage
 
 class MainApplication : Application(), ReactApplication {
 
     override val reactNativeHost: ReactNativeHost =
         object : DefaultReactNativeHost(this) {
-            override fun getPackages(): List<ReactPackage> =
-                PackageList(this).packages.apply {
-                    // Packages that cannot be autolinked yet can be added manually here
+            override fun getPackages(): List<ReactPackage> {
+                // Autolinking should normally register these packages.
+                // However, some setups end up missing them (RNFBAppModule not found),
+                // while other setups can double-register (override crash).
+                // We only add them if they are not already present.
+                val packages = PackageList(this).packages.toMutableList()
+
+                if (packages.none { it is ReactNativeFirebaseAppPackage }) {
+                    packages.add(ReactNativeFirebaseAppPackage())
                 }
+                if (packages.none { it is ReactNativeFirebaseAuthPackage }) {
+                    packages.add(ReactNativeFirebaseAuthPackage())
+                }
+
+                return packages
+            }
 
             override fun getJSMainModuleName(): String = "index"
 

@@ -46,6 +46,12 @@ export default function CreateScribeScreen() {
         js: ''
     });
     const textInputRef = useRef<TextInput>(null);
+    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    const POPULAR_EMOJIS = ['😂', '❤️', '😍', '🔥', '😊', '😭', '🙌', '✨', '🥺', '😎', '🙏', '🥰', '👍', '💯'];
+
+    const insertEmoji = (emoji: string) => {
+        setContent(prev => prev + emoji);
+    };
 
     const generateHtmlContent = () => {
         return `
@@ -270,6 +276,33 @@ export default function CreateScribeScreen() {
         );
     };
 
+    const pickGif = async () => {
+        if (Platform.OS === 'ios') {
+            const permission = PERMISSIONS.IOS.PHOTO_LIBRARY;
+            const result = await request(permission);
+            if (result !== RESULTS.GRANTED && result !== RESULTS.LIMITED) {
+                Alert.alert('Permission needed', 'Please grant photo library permissions first.');
+                return;
+            }
+        }
+
+        launchImageLibrary(
+            {
+                mediaType: 'photo',
+                includeBase64: false,
+                quality: 1, // Full quality for GIFs to prevent static JPEG conversion
+            },
+            (response) => {
+                if (!response.didCancel && !response.errorMessage && response.assets && response.assets.length > 0) {
+                    const asset = response.assets[0];
+                    if (asset.uri) {
+                        setSelectedImage(asset.uri);
+                    }
+                }
+            }
+        );
+    };
+
     const removeImage = () => {
         setSelectedImage(null);
     };
@@ -434,17 +467,34 @@ export default function CreateScribeScreen() {
 
                 {/* Action Bar (Only relevant for Standard posts, hide for Code mode) */}
                 {!isCodeMode && (
-                    <View style={[styles.actionBar, { borderTopColor: colors.border }]}>
-                        <TouchableOpacity style={styles.actionButton} onPress={pickImage}>
-                            <Icon name="image-outline" size={24} color={colors.textSecondary} />
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.actionButton} onPress={takePhoto}>
-                            <Icon name="camera-outline" size={24} color={colors.textSecondary} />
-                        </TouchableOpacity>
-                        <View style={styles.characterCount}>
-                            <Text style={[styles.characterCountText, { color: colors.textSecondary }]}>
-                                {content.length}/280
-                            </Text>
+                    <View style={{ backgroundColor: '#FFFFFF' }}>
+                        {showEmojiPicker && (
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.emojiContainer}>
+                                {POPULAR_EMOJIS.map(emoji => (
+                                    <TouchableOpacity key={emoji} onPress={() => insertEmoji(emoji)} style={styles.emojiButton}>
+                                        <Text style={styles.emojiText}>{emoji}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </ScrollView>
+                        )}
+                        <View style={[styles.actionBar, { borderTopColor: colors.border }]}>
+                            <TouchableOpacity style={styles.actionButton} onPress={pickImage}>
+                                <Icon name="image-outline" size={24} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.actionButton} onPress={takePhoto}>
+                                <Icon name="camera-outline" size={24} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.actionButton} onPress={pickGif}>
+                                <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textSecondary, alignSelf: 'center', marginHorizontal: 2 }}>GIF</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.actionButton} onPress={() => setShowEmojiPicker(!showEmojiPicker)}>
+                                <Icon name="happy-outline" size={24} color={showEmojiPicker ? '#3B82F6' : colors.textSecondary} />
+                            </TouchableOpacity>
+                            <View style={styles.characterCount}>
+                                <Text style={[styles.characterCountText, { color: colors.textSecondary }]}>
+                                    {content.length}/280
+                                </Text>
+                            </View>
                         </View>
                     </View>
                 )}
@@ -630,6 +680,21 @@ const styles = StyleSheet.create({
     characterCountText: {
         fontSize: 13,
         fontWeight: '500',
+    },
+    emojiContainer: {
+        flexDirection: 'row',
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderTopWidth: 1,
+        borderTopColor: '#E2E8F0',
+        backgroundColor: '#F8FAFC',
+    },
+    emojiButton: {
+        marginRight: 16,
+        padding: 4,
+    },
+    emojiText: {
+        fontSize: 24,
     },
     postButton: {
         backgroundColor: '#EBF5FF',

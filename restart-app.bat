@@ -9,9 +9,9 @@ set ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk
 set PATH=%PATH%;%ANDROID_HOME%\platform-tools
 
 echo Restarting app...
-adb shell am force-stop com.odnix
+adb shell am force-stop com.odnix.mobile
 timeout /t 1 /nobreak >nul
-adb shell am start -n com.odnix/.MainActivity
+adb shell am start -n com.odnix.mobile/.MainActivity
 
 echo.
 echo ✓ App restarted!

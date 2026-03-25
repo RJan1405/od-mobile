@@ -11,6 +11,7 @@ import CreateActionModal from '@/components/CreateActionModal';
 // Screens
 import LoginScreen from '@/screens/Auth/LoginScreen';
 import SignupScreen from '@/screens/Auth/SignupScreen';
+import OTPScreen from '@/screens/Auth/OTPScreen';
 import HomeScreen from '@/screens/Home/HomeScreen';
 import ChatListScreen from '@/screens/Chat/ChatListScreen';
 import ChatScreen from '@/screens/Chat/ChatScreen';
@@ -34,6 +35,7 @@ import BlockedUsersScreen from '@/screens/Settings/BlockedUsersScreen';
 export type RootStackParamList = {
     Login: undefined;
     Signup: undefined;
+    OTP: { userId: number; phoneNumber: string };
     Main: undefined;
     Chat: { chatId: number };
     CreateScribe: undefined;
@@ -217,6 +219,11 @@ export function RootNavigator() {
                         <Stack.Screen
                             name="Signup"
                             component={SignupScreen}
+                            options={{ headerShown: false }}
+                        />
+                        <Stack.Screen
+                            name="OTP"
+                            component={OTPScreen}
                             options={{ headerShown: false }}
                         />
                     </>

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1014240750197",
+    "project_id": "odnix-c9fa2",
+    "storage_bucket": "odnix-c9fa2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1014240750197:android:e1eb3bd7c6c721884aa63c",
+        "android_client_info": {
+          "package_name": "com.odnix.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDovi71TpQfpQtMDORE_ZaRHaw3-CvD6vQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -116,6 +116,7 @@ export interface OmzoComment {
     created_at: string;
     like_count: number;
     is_liked?: boolean;
+    parent?: number;
 }
 
 export interface Story {
@@ -209,6 +210,10 @@ export interface ApiResponse<T = any> {
     is_message_request?: boolean;
     is_other_blocked?: boolean;
     am_i_blocked?: boolean;
+    // Registration response fields
+    requires_otp?: boolean;
+    user_id?: number;
+    phone_number?: string;
 }
 
 export interface PaginatedResponse<T> {

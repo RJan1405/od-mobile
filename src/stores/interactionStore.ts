@@ -18,6 +18,7 @@ interface InteractionStore {
     setInteraction: (type: 'scribe' | 'omzo', id: number | string, state: Partial<InteractionState>) => void;
     batchSetInteractions: (newStates: Record<string, InteractionState>) => void;
     getInteraction: (type: 'scribe' | 'omzo', id: number | string) => InteractionState | undefined;
+    incrementCommentCount: (type: 'scribe' | 'omzo', id: number | string) => void;
 }
 
 export const useInteractionStore = create<InteractionStore>((set, get) => ({
@@ -51,4 +52,25 @@ export const useInteractionStore = create<InteractionStore>((set, get) => ({
         })),
 
     getInteraction: (type, id) => get().interactions[`${type}_${id}`],
+    incrementCommentCount: (type, id) => {
+        const key = `${type}_${id}`;
+        set(state => ({
+            interactions: {
+                ...state.interactions,
+                [key]: {
+                    ...(state.interactions[key] || {
+                        is_liked: false,
+                        like_count: 0,
+                        is_disliked: false,
+                        dislike_count: 0,
+                        is_saved: false,
+                        is_reposted: false,
+                        repost_count: 0,
+                        comment_count: 0
+                    }),
+                    comment_count: (state.interactions[key]?.comment_count || 0) + 1
+                }
+            }
+        }));
+    },
 }));
