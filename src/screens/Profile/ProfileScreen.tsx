@@ -485,7 +485,7 @@ export default function ProfileScreen() {
                     <View style={styles.locationJoinedRow}>
                         <View style={styles.infoItem}>
                             <Icon name="calendar-outline" size={16} color={colors.textSecondary} />
-                            <Text style={[styles.infoText, { color: colors.textSecondary }]}>Joined 2024</Text>
+                            <Text style={[styles.infoText, { color: colors.textSecondary }]}>Joined {new Date((user as any).date_joined || (user as any).created_at || Date.now()).getFullYear()}</Text>
                         </View>
                         <View style={[styles.infoItem, { marginLeft: 16 }]}>
                             <Icon name="location-outline" size={16} color={colors.textSecondary} />
@@ -1128,7 +1128,7 @@ const styles = StyleSheet.create({
     profileImage: {
         width: 80,
         height: 80,
-        borderRadius: 40,
+        borderRadius: 16,
     },
     profileImagePlaceholder: {
         justifyContent: 'center',

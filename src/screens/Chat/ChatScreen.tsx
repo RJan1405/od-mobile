@@ -192,7 +192,7 @@ export default function ChatScreen() {
                     >
                         <Image
                             source={{ uri: avatarUrl && avatarUrl.trim() !== '' ? avatarUrl : 'https://via.placeholder.com/40' }}
-                            style={{ width: 40, height: 40, borderRadius: 20, marginRight: 12 }}
+                            style={{ width: 40, height: 40, borderRadius: 8, marginRight: 12 }}
                         />
                         <View>
                             <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text }}>{title}</Text>

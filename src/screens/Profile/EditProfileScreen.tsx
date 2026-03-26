@@ -227,18 +227,18 @@ const styles = StyleSheet.create({
     },
     profileImageContainer: {
         position: 'relative',
-        borderRadius: 50,
+        borderRadius: 16,
     },
     profileImage: {
         width: 100,
         height: 100,
-        borderRadius: 50,
+        borderRadius: 16,
         borderWidth: 4,
     },
     profileImageOverlay: {
         ...StyleSheet.absoluteFillObject,
         backgroundColor: 'rgba(0,0,0,0.3)',
-        borderRadius: 50,
+        borderRadius: 16,
         justifyContent: 'center',
         alignItems: 'center',
     },
