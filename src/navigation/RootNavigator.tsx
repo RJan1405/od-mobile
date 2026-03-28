@@ -21,7 +21,6 @@ import CreateOmzoScreen from '@/screens/Omzo/CreateOmzoScreen';
 import ExploreScreen from '@/screens/Explore/ExploreScreen';
 import ProfileScreen from '@/screens/Profile/ProfileScreen';
 import UploadScreen from '@/screens/Upload/UploadScreen';
-import CreateScribeScreen from '@/screens/Scribe/CreateScribeScreen';
 import CreateStoryScreen from '@/screens/Story/CreateStoryScreen';
 import StoryViewScreen from '@/screens/Story/StoryViewScreen';
 import NotificationsScreen from '@/screens/Notifications/NotificationsScreen';
@@ -240,11 +239,6 @@ export function RootNavigator() {
                             options={{ title: 'Chat' }}
                         />
                         <Stack.Screen
-                            name="CreateScribe"
-                            component={CreateScribeScreen}
-                            options={{ title: 'Create Post' }}
-                        />
-                        <Stack.Screen
                             name="CreateOmzo"
                             component={CreateOmzoScreen}
                             options={{ title: 'Create Omzo', headerShown: false }}
@@ -313,7 +307,7 @@ export function RootNavigator() {
 
 const styles = StyleSheet.create({
     tabBarButtonContainer: {
-        top: -16,
+        top: -5,
         justifyContent: 'center',
         alignItems: 'center',
         width: 70,

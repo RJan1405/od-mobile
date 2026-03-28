@@ -254,7 +254,7 @@ export default function ScribeCommentsSheet({
                         </Text>
                         <TouchableOpacity
                             onPress={onClose}
-                            style={[styles.closeButton, { backgroundColor: theme === 'dark' ? '#374151' : '#F3F4F6' }]}
+                            style={[styles.closeButton, { backgroundColor: colors.background }]}
                             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                         >
                             <Icon name="close" size={18} color={colors.textSecondary} />
@@ -298,7 +298,7 @@ export default function ScribeCommentsSheet({
                     keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
                 >
                     {replyingTo && (
-                        <View style={[styles.replyingIndicator, { backgroundColor: theme === 'dark' ? '#1F2937' : '#F3F4F6' }]}>
+                        <View style={[styles.replyingIndicator, { backgroundColor: colors.background }]}>
                             <Text style={[styles.replyingText, { color: colors.textSecondary }]}>
                                 Replying to <Text style={{ fontWeight: '700', color: colors.primary }}>@{replyingTo.user?.username || (replyingTo as any).user_username}</Text>
                             </Text>
@@ -371,7 +371,7 @@ const styles = StyleSheet.create({
         alignSelf: 'center',
         width: 40,
         height: 4,
-        backgroundColor: '#E5E7EB',
+        backgroundColor: 'rgba(128, 128, 128, 0.3)',
         borderRadius: 2,
         marginBottom: 16,
     },

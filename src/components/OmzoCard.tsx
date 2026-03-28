@@ -466,6 +466,7 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
                 onToggleSave={handleToggleSave}
                 isReposted={isReposted}
                 onToggleRepost={handleRepost}
+                isOwnOmzo={isOwnOmzo}
             />
         </View>
     );

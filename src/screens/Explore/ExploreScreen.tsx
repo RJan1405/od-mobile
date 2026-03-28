@@ -30,6 +30,7 @@ import { useRepostStore } from '@/stores/repostStore';
 import api from '@/services/api';
 import ScribeCard from '@/components/ScribeCard';
 import ScribeCommentsSheet from '@/components/ScribeCommentsSheet';
+import OmzoCommentsSheet from '@/components/OmzoCommentsSheet';
 import type { User, Scribe, Omzo } from '@/types';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -81,7 +82,9 @@ export default function ExploreScreen() {
     const [isModalVisible, setIsModalVisible] = useState(false);
     const [isOmzoModalVisible, setIsOmzoModalVisible] = useState(false);
     const [isCommentsVisible, setIsCommentsVisible] = useState(false);
+    const [isOmzoCommentsVisible, setIsOmzoCommentsVisible] = useState(false);
     const [commentScribeId, setCommentScribeId] = useState<number | null>(null);
+    const [commentOmzoId, setCommentOmzoId] = useState<number | null>(null);
     const [commentCountForSheet, setCommentCountForSheet] = useState(0);
 
     // Refs to prevent concurrent fetches and track loaded state
@@ -117,6 +120,25 @@ export default function ExploreScreen() {
             scribePostedListener.remove();
         };
     }, []);
+
+    // Suddenly remove deleted scribes from feed
+    useEffect(() => {
+        const scribeDeletedSubscription = DeviceEventEmitter.addListener('SCRIBE_DELETED', ({ scribeId }) => {
+            setExploreFeed(prev => prev.filter(item => item.id !== scribeId));
+            
+            // Also close modals if they were showing the deleted item
+            if (selectedScribe?.id === scribeId) {
+                setIsModalVisible(false);
+                setSelectedScribe(null);
+            }
+            if (selectedOmzo?.id === scribeId) {
+                setIsOmzoModalVisible(false);
+                setSelectedOmzo(null);
+            }
+        });
+
+        return () => scribeDeletedSubscription.remove();
+    }, [selectedScribe, selectedOmzo]);
 
     // On screen focus: only silently sync interaction states of already-loaded items
     // Do NOT reload page 1 — that would reset the feed and waste bandwidth
@@ -332,13 +354,17 @@ export default function ExploreScreen() {
     };
 
     const openOmzoModal = (item: any) => {
+        // Pull latest from interaction store if available
+        const interactionKey = `omzo_${item.id}`;
+        const storeData = interactions[interactionKey];
+
         // Transform and navigate to full screen omzo viewer
         const transformedItem = {
             ...item,
             id: item.id,
-            comments: item.comments || 0,
-            likes: item.likes || 0,
-            isLiked: item.isLiked || false,
+            comments: storeData?.comment_count ?? item.comments ?? 0,
+            likes: storeData?.like_count ?? item.likes ?? 0,
+            isLiked: storeData?.is_liked ?? item.isLiked ?? false,
             video_file: item.videoUrl,
             video_url: item.videoUrl,
             user: {
@@ -361,6 +387,19 @@ export default function ExploreScreen() {
         setCommentText('');
         setTimeout(() => {
             setSelectedOmzo(null);
+        }, 300);
+    };
+
+    const openOmzoComments = (omzoId: string | number, initialCount: number) => {
+        setCommentOmzoId(typeof omzoId === 'string' ? parseInt(omzoId) : omzoId);
+        setCommentCountForSheet(initialCount);
+        setIsOmzoCommentsVisible(true);
+    };
+
+    const closeOmzoComments = () => {
+        setIsOmzoCommentsVisible(false);
+        setTimeout(() => {
+            setCommentOmzoId(null);
         }, 300);
     };
 
@@ -502,10 +541,10 @@ export default function ExploreScreen() {
         });
 
         try {
-            const response = type === 'scribe' 
+            const response = type === 'scribe'
                 ? await api.toggleRepostScribe(parseInt(item.id))
                 : await api.toggleRepostOmzo(parseInt(item.id));
-            
+
             if (response.success) {
                 const actual = response.is_reposted ?? newReposted;
                 setRepostState(type, item.id, { is_reposted: actual });
@@ -742,10 +781,10 @@ export default function ExploreScreen() {
 
         // Optimistic update
         const newIsLiked = !prevInteraction.is_liked;
-        const newLikeCount = prevInteraction.is_liked 
-            ? Math.max(0, (prevInteraction.like_count || 0) - 1) 
+        const newLikeCount = prevInteraction.is_liked
+            ? Math.max(0, (prevInteraction.like_count || 0) - 1)
             : (prevInteraction.like_count || 0) + 1;
-        
+
         setInteraction('scribe', scribeId, {
             is_liked: newIsLiked,
             like_count: newLikeCount
@@ -773,7 +812,7 @@ export default function ExploreScreen() {
     const handleScribeSave = async (scribeId: string, currentSaved: boolean) => {
         const key = `scribe_${scribeId}`;
         const prevSaved = (interactions[key]?.is_saved) ?? currentSaved;
-        
+
         setInteraction('scribe', scribeId, { is_saved: !prevSaved });
 
         try {
@@ -798,10 +837,10 @@ export default function ExploreScreen() {
         };
 
         const newIsLiked = !prevInteraction.is_liked;
-        const newLikeCount = prevInteraction.is_liked 
-            ? Math.max(0, (prevInteraction.like_count || 0) - 1) 
+        const newLikeCount = prevInteraction.is_liked
+            ? Math.max(0, (prevInteraction.like_count || 0) - 1)
             : (prevInteraction.like_count || 0) + 1;
-        
+
         setInteraction('omzo', omzoId, {
             is_liked: newIsLiked,
             like_count: newLikeCount
@@ -834,8 +873,8 @@ export default function ExploreScreen() {
         };
 
         const newReposted = !prevInteraction.is_reposted;
-        const newCount = prevInteraction.is_reposted 
-            ? Math.max(0, (prevInteraction.repost_count || 0) - 1) 
+        const newCount = prevInteraction.is_reposted
+            ? Math.max(0, (prevInteraction.repost_count || 0) - 1)
             : (prevInteraction.repost_count || 0) + 1;
 
         setInteraction('omzo', omzoId, {
@@ -860,7 +899,7 @@ export default function ExploreScreen() {
     const handleOmzoSave = async (omzoId: string, currentSaved: boolean) => {
         const key = `omzo_${omzoId}`;
         const prevSaved = (interactions[key]?.is_saved) ?? currentSaved;
-        
+
         setInteraction('omzo', omzoId, { is_saved: !prevSaved });
 
         try {
@@ -934,14 +973,14 @@ export default function ExploreScreen() {
                 setFollowState(username, nowFollowing, requestStatus);
                 setExploreFeed(prev => prev.map(feedItem =>
                     feedItem.user?.username === username
-                        ? { 
-                            ...feedItem, 
-                            user: { 
-                                ...feedItem.user, 
+                        ? {
+                            ...feedItem,
+                            user: {
+                                ...feedItem.user,
                                 isFollowing: nowFollowing,
-                                follow_request_status: requestStatus 
-                            } 
-                          }
+                                follow_request_status: requestStatus
+                            }
+                        }
                         : feedItem
                 ));
 
@@ -1037,6 +1076,7 @@ export default function ExploreScreen() {
                             <Text
                                 style={[
                                     styles.followButtonText,
+                                    { color: '#FFFFFF' },
                                     (isItemFollowing || followRequestStatus === 'pending') && { color: colors.text },
                                 ]}
                             >
@@ -1147,142 +1187,189 @@ export default function ExploreScreen() {
             const omzoRequestStatus = requestStatuses[omzoUsername] ?? (item.user as any)?.follow_request_status ?? null;
 
             return (
-                <TouchableOpacity
+                <View
                     key={`omzo-${item.id}`}
-                    style={styles.exploreOmzoCard}
-                    onPress={() => openOmzoModal(item)}
-                    activeOpacity={0.92}
+                    style={[styles.exploreOmzoCard, { backgroundColor: colors.surface, borderColor: colors.border + '40', borderWidth: 1 }]}
                 >
-                    {/* Header */}
-                    <View style={styles.exploreOmzoHeader}>
-                        <TouchableOpacity
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            onPress={() => navigation.navigate('Profile' as any, { username: item.user?.username } as any)}
-                            activeOpacity={0.8}
-                        >
-                            {hasAvatar ? (
-                                <Image source={{ uri: item.user.avatar }} style={styles.exploreOmzoAvatar} />
-                            ) : (
-                                <View style={[styles.exploreOmzoAvatar, { backgroundColor: '#6366F1', justifyContent: 'center', alignItems: 'center' }]}>
-                                    <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>
-                                        {item.user?.displayName?.[0]?.toUpperCase() || 'U'}
-                                    </Text>
-                                </View>
-                            )}
-                        </TouchableOpacity>
-                        <View style={{ flex: 1, marginLeft: 10 }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
-                                <Text style={styles.exploreOmzoName}>
-                                    {item.user?.displayName || item.user?.username || 'Unknown'}
-                                </Text>
-                                {item.user?.isVerified && (
-                                    <Icon name="checkmark-circle" size={14} color="#3B82F6" />
-                                )}
-                                <View style={styles.omzoBadge}>
-                                    <Icon name="videocam" size={10} color="#fff" />
-                                    <Text style={styles.omzoBadgeText}>Omzo</Text>
-                                </View>
-                            </View>
-                            <Text style={styles.exploreOmzoHandle}>@{item.user?.username || 'unknown'}</Text>
-                        </View>
-
-                        {/* Follow button — show when not own post, toggle between Follow/Following */}
-                        {!isOwnOmzo && (
+                    <TouchableOpacity
+                        onPress={() => openOmzoModal(item)}
+                        activeOpacity={0.92}
+                    >
+                        {/* Header */}
+                        <View style={styles.exploreOmzoHeader}>
                             <TouchableOpacity
-                                style={[
-                                    styles.exploreFollowBtn,
-                                    isFollowingOmzoUser
-                                        ? { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#6B7280' }
-                                        : {},
-                                ]}
-                                onPress={() => handleFollowUser(item.user?.username, undefined)}
-                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                onPress={() => navigation.navigate('Profile' as any, { username: item.user?.username } as any)}
                                 activeOpacity={0.8}
                             >
-                                <Text
-                                    style={[
-                                        styles.exploreFollowBtnText,
-                                        (isFollowingOmzoUser || omzoRequestStatus === 'pending') && { color: '#9CA3AF' },
-                                    ]}
-                                >
-                                    {isFollowingOmzoUser ? 'Following' : (omzoRequestStatus === 'pending' ? 'Requested' : 'Follow')}
-                                </Text>
+                                {hasAvatar ? (
+                                    <Image source={{ uri: item.user.avatar }} style={styles.exploreOmzoAvatar} />
+                                ) : (
+                                    <View style={[styles.exploreOmzoAvatar, { backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' }]}>
+                                        <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>
+                                            {item.user?.displayName?.[0]?.toUpperCase() || 'U'}
+                                        </Text>
+                                    </View>
+                                )}
                             </TouchableOpacity>
-                        )}
+                            <View style={{ flex: 1, marginLeft: 10 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                                    <Text style={[styles.exploreOmzoName, { color: colors.text }]}>
+                                        {item.user?.displayName || item.user?.username || 'Unknown'}
+                                    </Text>
+                                    {item.user?.isVerified && (
+                                        <Icon name="checkmark-circle" size={14} color={colors.primary} style={{ marginLeft: -1 }} />
+                                    )}
 
-                        <Icon name="ellipsis-horizontal" size={18} color="#9CA3AF" style={{ marginLeft: 6 }} />
-                    </View>
+                                    {!isOwnOmzo && (
+                                        <TouchableOpacity
+                                            onPress={() => handleFollowUser(item.user?.username, undefined)}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={[
+                                                styles.followLinkText,
+                                                { color: colors.primary, fontSize: 14, fontWeight: '700', marginLeft: 6 },
+                                                isFollowingOmzoUser && { color: colors.textSecondary }
+                                            ]}>
+                                                {isFollowingOmzoUser ? 'Following' : 'Follow'}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    )}
 
-
-                    {/* Caption */}
-                    {item.caption ? (
-                        <Text style={styles.exploreOmzoCaption} numberOfLines={3}>{item.caption}</Text>
-                    ) : null}
-
-                    {/* Thumbnail — pointerEvents='none' so all touches reach the card TouchableOpacity above.
-                        Never uses <Video> in list (Video intercepts native touches on Android). */}
-                    <View style={styles.omzoThumbContainer} pointerEvents="none">
-                        {hasThumb ? (
-                            <Image
-                                source={{ uri: thumbUri as string }}
-                                style={styles.omzoThumb}
-                                resizeMode="cover"
-                            />
-                        ) : (
-                            <View style={[styles.omzoThumb, { backgroundColor: '#1a1a3e', justifyContent: 'center', alignItems: 'center' }]}>
-                                <Icon name="videocam" size={40} color="rgba(255,255,255,0.2)" />
+                                    <View style={styles.omzoBadge}>
+                                        <Icon name="videocam" size={10} color="#fff" />
+                                        <Text style={styles.omzoBadgeText}>Omzo</Text>
+                                    </View>
+                                </View>
+                                <Text style={[styles.exploreOmzoHandle, { color: colors.textSecondary }]}>@{item.user?.username || 'unknown'}</Text>
                             </View>
-                        )}
-                        <View style={styles.playOverlay}>
-                            <View style={styles.playButton}>
-                                <Icon name="play" size={24} color="#3B82F6" />
+
+                            {/* Follow button — show when not own post, toggle between Follow/Following */}
+
+
+                            <Icon name="ellipsis-horizontal" size={18} color={colors.textSecondary} style={{ marginLeft: 6 }} />
+                        </View>
+
+
+                        {/* Caption */}
+                        {item.caption ? (
+                            <Text style={[styles.exploreOmzoCaption, { color: colors.text }]} numberOfLines={3}>{item.caption}</Text>
+                        ) : null}
+
+                        {/* Thumbnail — pointerEvents='none' so all touches reach the card TouchableOpacity above.
+                        Never uses <Video> in list (Video intercepts native touches on Android). */}
+                        <View style={styles.omzoThumbContainer} pointerEvents="none">
+                            {hasThumb ? (
+                                <Image
+                                    source={{ uri: thumbUri as string }}
+                                    style={styles.omzoThumb}
+                                    resizeMode="cover"
+                                />
+                            ) : (
+                                <View style={[styles.omzoThumb, { backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' }]}>
+                                    <Icon name="videocam" size={40} color={colors.textSecondary} />
+                                </View>
+                            )}
+                            <View style={styles.playOverlay}>
+                                <View style={[styles.playButton, { backgroundColor: colors.surface }]}>
+                                    <Icon name="play" size={24} color={colors.primary} />
+                                </View>
                             </View>
                         </View>
-                    </View>
+                    </TouchableOpacity>
 
-                    {/* Action bar */}
-                    <View style={styles.exploreOmzoActions}>
+                    {/* Action bar - separate from main card touch area */}
+                    <View style={[styles.actions, { backgroundColor: colors.background, borderColor: colors.border + '40', borderWidth: 1, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', marginTop: 12 }]}>
                         <TouchableOpacity
                             style={styles.actionBtn}
-                            onPress={() => handleOmzoLike(item.id, item.isLiked || false)}
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                const key = `omzo_${item.id}`;
+                                const currentlyLiked = !!(interactions[key]?.is_liked ?? item.isLiked);
+                                handleOmzoLike(String(item.id), currentlyLiked);
+                            }}
                             activeOpacity={0.7}
                             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                         >
-                            <Icon name={item.isLiked ? 'heart' : 'heart-outline'} size={20} color={item.isLiked ? '#EF4444' : '#9CA3AF'} />
-                            <Text style={[styles.actionCount, item.isLiked && { color: '#EF4444' }]}>{item.likes || 0}</Text>
+                            <Icon
+                                name={(interactions[`omzo_${item.id}`]?.is_liked ?? item.isLiked) ? 'heart' : 'heart-outline'}
+                                size={22}
+                                color={(interactions[`omzo_${item.id}`]?.is_liked ?? item.isLiked) ? '#FF3B5C' : colors.textSecondary}
+                            />
+                            <Text style={[styles.actionCount, { color: colors.textSecondary }, (interactions[`omzo_${item.id}`]?.is_liked ?? item.isLiked) && { color: '#FF3B5C' }]}>
+                                {formatCount(interactions[`omzo_${item.id}`]?.like_count ?? (item.likes || 0))}
+                            </Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
                             style={styles.actionBtn}
-                            onPress={() => openOmzoModal(item)}
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                const currentCount = interactions[`omzo_${item.id}`]?.comment_count ?? (item.comments || 0);
+                                openOmzoComments(item.id, currentCount);
+                            }}
                             activeOpacity={0.7}
                             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                         >
-                            <Icon name="chatbubble-outline" size={20} color="#9CA3AF" />
-                            <Text style={styles.actionCount}>{item.comments || 0}</Text>
+                            <Icon name="chatbubble-outline" size={20} color={colors.textSecondary} />
+                            <Text style={[styles.actionCount, { color: colors.textSecondary }]}>
+                                {formatCount(interactions[`omzo_${item.id}`]?.comment_count ?? (item.comments || 0))}
+                            </Text>
                         </TouchableOpacity>
 
-                        <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
-                            <Icon name="repeat-outline" size={20} color="#9CA3AF" />
-                            <Text style={styles.actionCount}>{item.shares || 0}</Text>
+                        <TouchableOpacity
+                            style={styles.actionBtn}
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                handleOmzoRepost(String(item.id));
+                            }}
+                            activeOpacity={0.7}
+                            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                        >
+                            <Icon
+                                name={(interactions[`omzo_${item.id}`]?.is_reposted ?? item.isReposted) ? 'repeat' : 'repeat-outline'}
+                                size={22}
+                                color={(interactions[`omzo_${item.id}`]?.is_reposted ?? item.isReposted) ? colors.success : colors.textSecondary}
+                            />
+                            <Text style={[styles.actionCount, { color: colors.textSecondary }, (interactions[`omzo_${item.id}`]?.is_reposted ?? item.isReposted) && { color: colors.success }]}>
+                                {formatCount(interactions[`omzo_${item.id}`]?.repost_count ?? (item.shares || 0))}
+                            </Text>
                         </TouchableOpacity>
 
                         <View style={{ flex: 1 }} />
 
                         <TouchableOpacity
                             style={styles.actionIconBtn}
-                            onPress={() => handleOmzoSave(item.id, item.isSaved || false)}
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                const key = `omzo_${item.id}`;
+                                const currentlySaved = !!(interactions[key]?.is_saved ?? item.isSaved);
+                                handleOmzoSave(String(item.id), currentlySaved);
+                            }}
                             activeOpacity={0.7}
                             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                         >
-                            <Icon name={item.isSaved ? 'bookmark' : 'bookmark-outline'} size={20} color={item.isSaved ? '#3B82F6' : '#9CA3AF'} />
+                            <Icon
+                                name={(interactions[`omzo_${item.id}`]?.is_saved ?? item.isSaved) ? 'bookmark' : 'bookmark-outline'}
+                                size={22}
+                                color={(interactions[`omzo_${item.id}`]?.is_saved ?? item.isSaved) ? colors.primary : colors.textSecondary}
+                            />
                         </TouchableOpacity>
 
-                        <TouchableOpacity style={styles.actionIconBtn} activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
-                            <Icon name="paper-plane-outline" size={20} color="#9CA3AF" />
+                        <TouchableOpacity
+                            style={styles.actionIconBtn}
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                // Share logic placeholder
+                                Alert.alert('Share', 'Share functionality coming soon!');
+                            }}
+                            activeOpacity={0.7}
+                            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                        >
+                            <Icon name="paper-plane-outline" size={20} color={colors.textSecondary} />
                         </TouchableOpacity>
                     </View>
-                </TouchableOpacity>
+                </View>
             );
         }
 
@@ -1326,7 +1413,7 @@ export default function ExploreScreen() {
                                         {item.user?.displayName || item.user?.username}
                                     </Text>
                                     {item.user?.isVerified && (
-                                        <Icon name="checkmark-circle" size={14} color="#3B82F6" />
+                                        <Icon name="checkmark-circle" size={14} color={colors.primary} />
                                     )}
                                 </View>
                                 <Text style={[styles.cardHandle, { color: colors.textSecondary }]} numberOfLines={1}>
@@ -1353,7 +1440,7 @@ export default function ExploreScreen() {
                     )}
 
                     {/* Action Bar */}
-                    <View style={styles.cardFooter}>
+                    <View style={[styles.cardFooter, { borderTopColor: colors.border }]}>
                         <TouchableOpacity
                             style={styles.cardAction}
                             onPress={(e) => {
@@ -1380,17 +1467,17 @@ export default function ExploreScreen() {
                                 {interactions[`scribe_${item.id}`]?.comment_count ?? item.comments ?? 0}
                             </Text>
                         </TouchableOpacity>
-                        <TouchableOpacity 
+                        <TouchableOpacity
                             style={styles.cardAction}
                             onPress={(e) => {
                                 e.stopPropagation();
                                 handleScribeRepost(item.id);
                             }}
                         >
-                            <Icon 
-                                name={(repostStates[`scribe_${item.id}`]?.is_reposted) ? "repeat" : "repeat-outline"} 
-                                size={18} 
-                                color={(repostStates[`scribe_${item.id}`]?.is_reposted) ? "#10B981" : colors.textSecondary} 
+                            <Icon
+                                name={(repostStates[`scribe_${item.id}`]?.is_reposted) ? "repeat" : "repeat-outline"}
+                                size={18}
+                                color={(repostStates[`scribe_${item.id}`]?.is_reposted) ? "#10B981" : colors.textSecondary}
                             />
                             <Text style={[styles.cardStatText, { color: (repostStates[`scribe_${item.id}`]?.is_reposted) ? "#10B981" : colors.textSecondary }]}>
                                 {repostStates[`scribe_${item.id}`]?.repost_count ?? (item.shares || 0)}
@@ -1423,7 +1510,7 @@ export default function ExploreScreen() {
                     style={[
                         styles.masonryCard,
                         styles.omzoMasonryCard,
-                        { backgroundColor: '#1a1a1a' },
+                        { backgroundColor: colors.surface },
                         isLarge && styles.masonryCardLarge,
                     ]}
                     onPress={() => openOmzoModal(item)}
@@ -1443,8 +1530,8 @@ export default function ExploreScreen() {
                             />
                         </View>
                     ) : (
-                        <View style={[styles.omzoMasonryVideo, { backgroundColor: '#2a2a2a', justifyContent: 'center', alignItems: 'center' }]} pointerEvents="none">
-                            <Icon name="videocam" size={48} color="#666666" />
+                        <View style={[styles.omzoMasonryVideo, { backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' }]} pointerEvents="none">
+                            <Icon name="videocam" size={48} color={colors.textSecondary} />
                         </View>
                     )}
 
@@ -1472,7 +1559,7 @@ export default function ExploreScreen() {
                         </View>
 
                         {/* Stats Row */}
-                        <View style={styles.omzoStatsRow}>
+                        <View style={[styles.omzoStatsRow, { backgroundColor: colors.background, borderColor: colors.border + '40' }]}>
                             <TouchableOpacity
                                 style={styles.omzoStatItem}
                                 onPress={(e) => {
@@ -1484,22 +1571,22 @@ export default function ExploreScreen() {
                             >
                                 <Icon
                                     name={(interactions[`omzo_${item.id}`]?.is_liked ?? item.isLiked) ? "heart" : "heart-outline"}
-                                    size={16}
-                                    color={(interactions[`omzo_${item.id}`]?.is_liked ?? item.isLiked) ? "#EF4444" : "#FFFFFF"}
+                                    size={22}
+                                    color={(interactions[`omzo_${item.id}`]?.is_liked ?? item.isLiked) ? "#EF4444" : colors.textSecondary}
                                 />
-                                <Text style={styles.omzoStatText}>
+                                <Text style={[styles.omzoStatText, { color: colors.textSecondary }, (interactions[`omzo_${item.id}`]?.is_liked ?? item.isLiked) && { color: "#EF4444" }]}>
                                     {formatCount(interactions[`omzo_${item.id}`]?.like_count ?? (item.likes || 0))}
                                 </Text>
                             </TouchableOpacity>
-                            <TouchableOpacity 
+                            <TouchableOpacity
                                 style={styles.omzoStatItem}
                                 onPress={(e) => {
                                     e.stopPropagation();
                                     openOmzoModal(item);
                                 }}
                             >
-                                <Icon name="chatbubble-outline" size={16} color="#FFFFFF" />
-                                <Text style={styles.omzoStatText}>
+                                <Icon name="chatbubble-outline" size={20} color={colors.textSecondary} />
+                                <Text style={[styles.omzoStatText, { color: colors.textSecondary }]}>
                                     {interactions[`omzo_${item.id}`]?.comment_count ?? item.comments ?? 0}
                                 </Text>
                             </TouchableOpacity>
@@ -1512,15 +1599,18 @@ export default function ExploreScreen() {
                             >
                                 <Icon
                                     name={(interactions[`omzo_${item.id}`]?.is_reposted ?? item.isReposted) ? "repeat" : "repeat-outline"}
-                                    size={16}
-                                    color={(interactions[`omzo_${item.id}`]?.is_reposted ?? item.isReposted) ? "#10B981" : "#FFFFFF"}
+                                    size={22}
+                                    color={(interactions[`omzo_${item.id}`]?.is_reposted ?? item.isReposted) ? "#10B981" : colors.textSecondary}
                                 />
-                                <Text style={[styles.omzoStatText, (interactions[`omzo_${item.id}`]?.is_reposted ?? item.isReposted) && { color: "#10B981" }]}>
+                                <Text style={[styles.omzoStatText, { color: colors.textSecondary }, (interactions[`omzo_${item.id}`]?.is_reposted ?? item.isReposted) && { color: "#10B981" }]}>
                                     {formatCount(interactions[`omzo_${item.id}`]?.repost_count ?? (item.reposts || 0))}
                                 </Text>
                             </TouchableOpacity>
+
+                            <View style={{ flex: 1 }} />
+
                             <TouchableOpacity
-                                style={styles.omzoStatItem}
+                                style={styles.omzoStatItemIcon}
                                 onPress={(e) => {
                                     e.stopPropagation();
                                     const key = `omzo_${item.id}`;
@@ -1530,9 +1620,16 @@ export default function ExploreScreen() {
                             >
                                 <Icon
                                     name={(interactions[`omzo_${item.id}`]?.is_saved ?? item.isSaved) ? "bookmark" : "bookmark-outline"}
-                                    size={16}
-                                    color={(interactions[`omzo_${item.id}`]?.is_saved ?? item.isSaved) ? colors.primary : "#FFFFFF"}
+                                    size={22}
+                                    color={(interactions[`omzo_${item.id}`]?.is_saved ?? item.isSaved) ? colors.primary : colors.textSecondary}
                                 />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.omzoStatItemIcon}
+                                onPress={(e) => e.stopPropagation()}
+                            >
+                                <Icon name="paper-plane-outline" size={20} color={colors.textSecondary} />
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -1548,8 +1645,8 @@ export default function ExploreScreen() {
         if (!isLoadingMore || isRefreshing) return null;
         return (
             <View style={styles.footer}>
-                <ActivityIndicator color="#3B82F6" />
-                <Text style={{ color: '#9CA3AF', marginTop: 6, fontSize: 13 }}>Loading more...</Text>
+                <ActivityIndicator color={colors.primary} />
+                <Text style={{ color: colors.textSecondary, marginTop: 6, fontSize: 13 }}>Loading more...</Text>
             </View>
         );
     };
@@ -1559,22 +1656,22 @@ export default function ExploreScreen() {
     const isLoading = isShowingSearch ? isSearching : isInitialLoad;
 
     return (
-        <View style={[styles.container, { backgroundColor: '#F3F4F6' }]}>
+        <View style={[styles.container, { backgroundColor: colors.background }]}>
             {/* Search Bar */}
-            <View style={styles.searchBarRow}>
-                <View style={styles.searchBarInner}>
-                    <Icon name="search" size={18} color="#9CA3AF" />
+            <View style={[styles.searchBarRow, { backgroundColor: colors.background }]}>
+                <View style={[styles.searchBarInner, { backgroundColor: colors.surface }]}>
+                    <Icon name="search" size={18} color={colors.textSecondary} />
                     <TextInput
-                        style={styles.searchInput}
+                        style={[styles.searchInput, { color: colors.text }]}
                         placeholder="Search scribes, people, tags..."
-                        placeholderTextColor="#9CA3AF"
+                        placeholderTextColor={colors.textSecondary}
                         value={searchQuery}
                         onChangeText={handleSearch}
                         autoCapitalize="none"
                     />
                     {searchQuery.length > 0 && (
                         <TouchableOpacity onPress={() => handleSearch('')}>
-                            <Icon name="close-circle" size={18} color="#9CA3AF" />
+                            <Icon name="close-circle" size={18} color={colors.textSecondary} />
                         </TouchableOpacity>
                     )}
                 </View>
@@ -1582,7 +1679,7 @@ export default function ExploreScreen() {
 
             {isLoading ? (
                 <View style={styles.centered}>
-                    <ActivityIndicator size="large" color="#3B82F6" />
+                    <ActivityIndicator size="large" color={colors.primary} />
                 </View>
             ) : (
                 <FlatList
@@ -1599,7 +1696,7 @@ export default function ExploreScreen() {
                             <RefreshControl
                                 refreshing={isRefreshing}
                                 onRefresh={handleRefresh}
-                                tintColor="#3B82F6"
+                                tintColor={colors.primary}
                             />
                         ) : undefined
                     }
@@ -1617,7 +1714,7 @@ export default function ExploreScreen() {
                             <Icon
                                 name={isShowingSearch ? 'search' : 'sparkles'}
                                 size={48}
-                                color="#9CA3AF"
+                                color={colors.textSecondary}
                             />
                             <Text style={styles.emptyTitle}>
                                 {isShowingSearch ? 'No Results Found' : 'Start Exploring'}
@@ -1678,7 +1775,7 @@ export default function ExploreScreen() {
                                                     {selectedScribe.user?.displayName || selectedScribe.user?.username}
                                                 </Text>
                                                 {selectedScribe.user?.isVerified && (
-                                                    <Icon name="checkmark-circle" size={16} color="#3B82F6" />
+                                                    <Icon name="checkmark-circle" size={16} color={colors.primary} />
                                                 )}
                                             </View>
                                             <Text style={[styles.modalHandle, { color: colors.textSecondary }]}>
@@ -1707,25 +1804,25 @@ export default function ExploreScreen() {
                                     {/* Code snippets & Live Preview */}
                                     {!!(selectedScribe.code_html || selectedScribe.code_css || selectedScribe.code_js) && (
                                         <View style={styles.codeContainer}>
-                                            <View style={styles.tabContainer}>
+                                            <View style={[styles.tabContainer, { backgroundColor: colors.background }]}>
                                                 <TouchableOpacity
-                                                    style={[styles.tabButton, activeTab === 'preview' && styles.tabButtonActive]}
+                                                    style={[styles.tabButton, activeTab === 'preview' && styles.tabButtonActive, activeTab === 'preview' && { backgroundColor: colors.surface }]}
                                                     onPress={() => setActiveTab('preview')}
                                                 >
-                                                    <Icon name="play" size={14} color={activeTab === 'preview' ? '#3B82F6' : '#6B7280'} />
-                                                    <Text style={[styles.tabText, activeTab === 'preview' && styles.tabTextActive]}>Live Preview</Text>
+                                                    <Icon name="play" size={14} color={activeTab === 'preview' ? colors.primary : colors.textSecondary} />
+                                                    <Text style={[styles.tabText, { color: colors.textSecondary }, activeTab === 'preview' && styles.tabTextActive, activeTab === 'preview' && { color: colors.primary }]}>Live Preview</Text>
                                                 </TouchableOpacity>
                                                 <TouchableOpacity
-                                                    style={[styles.tabButton, activeTab === 'code' && styles.tabButtonActive]}
+                                                    style={[styles.tabButton, activeTab === 'code' && styles.tabButtonActive, activeTab === 'code' && { backgroundColor: colors.surface }]}
                                                     onPress={() => setActiveTab('code')}
                                                 >
-                                                    <Icon name="code" size={14} color={activeTab === 'code' ? '#3B82F6' : '#6B7280'} />
-                                                    <Text style={[styles.tabText, activeTab === 'code' && styles.tabTextActive]}>Source Code</Text>
+                                                    <Icon name="code" size={14} color={activeTab === 'code' ? colors.primary : colors.textSecondary} />
+                                                    <Text style={[styles.tabText, { color: colors.textSecondary }, activeTab === 'code' && styles.tabTextActive, activeTab === 'code' && { color: colors.primary }]}>Source Code</Text>
                                                 </TouchableOpacity>
                                             </View>
 
                                             {activeTab === 'preview' ? (
-                                                <View style={styles.webviewContainer}>
+                                                <View style={[styles.webviewContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                                                     <WebView
                                                         source={{
                                                             html: `
@@ -1755,37 +1852,37 @@ export default function ExploreScreen() {
                                             ) : (
                                                 <View>
                                                     {selectedScribe.code_html ? (
-                                                        <View style={styles.codeBlock}>
-                                                            <View style={styles.codeHeader}>
-                                                                <Text style={styles.codeLang}>HTML</Text>
-                                                                <Icon name="code-slash" size={14} color="#3B82F6" />
+                                                        <View style={[styles.codeBlock, { backgroundColor: colors.background }]}>
+                                                            <View style={[styles.codeHeader, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+                                                                <Text style={[styles.codeLang, { color: colors.text }]}>HTML</Text>
+                                                                <Icon name="code-slash" size={14} color={colors.primary} />
                                                             </View>
                                                             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.codeScroll}>
-                                                                <Text style={styles.codeText}>{selectedScribe.code_html.trimEnd()}</Text>
+                                                                <Text style={[styles.codeText, { color: colors.text }]}>{selectedScribe.code_html.trimEnd()}</Text>
                                                             </ScrollView>
                                                         </View>
                                                     ) : null}
 
                                                     {selectedScribe.code_css ? (
-                                                        <View style={styles.codeBlock}>
-                                                            <View style={styles.codeHeader}>
-                                                                <Text style={styles.codeLang}>CSS</Text>
+                                                        <View style={[styles.codeBlock, { backgroundColor: colors.background }]}>
+                                                            <View style={[styles.codeHeader, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+                                                                <Text style={[styles.codeLang, { color: colors.text }]}>CSS</Text>
                                                                 <Icon name="color-palette-outline" size={14} color="#10B981" />
                                                             </View>
                                                             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.codeScroll}>
-                                                                <Text style={styles.codeText}>{selectedScribe.code_css.trimEnd()}</Text>
+                                                                <Text style={[styles.codeText, { color: colors.text }]}>{selectedScribe.code_css.trimEnd()}</Text>
                                                             </ScrollView>
                                                         </View>
                                                     ) : null}
 
                                                     {selectedScribe.code_js ? (
-                                                        <View style={styles.codeBlock}>
-                                                            <View style={styles.codeHeader}>
-                                                                <Text style={styles.codeLang}>JS</Text>
+                                                        <View style={[styles.codeBlock, { backgroundColor: colors.background }]}>
+                                                            <View style={[styles.codeHeader, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+                                                                <Text style={[styles.codeLang, { color: colors.text }]}>JS</Text>
                                                                 <Icon name="logo-javascript" size={14} color="#F59E0B" />
                                                             </View>
                                                             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.codeScroll}>
-                                                                <Text style={styles.codeText}>{selectedScribe.code_js.trimEnd()}</Text>
+                                                                <Text style={[styles.codeText, { color: colors.text }]}>{selectedScribe.code_js.trimEnd()}</Text>
                                                             </ScrollView>
                                                         </View>
                                                     ) : null}
@@ -1851,10 +1948,10 @@ export default function ExploreScreen() {
                                         <Icon name="chatbubble-outline" size={26} color={colors.textSecondary} />
                                     </TouchableOpacity>
                                     <TouchableOpacity style={styles.modalActionButton} onPress={handleModalRepost}>
-                                        <Icon 
-                                            name={(repostStates[`scribe_${selectedScribe.id}`]?.is_reposted) ? "repeat" : "repeat-outline"} 
-                                            size={26} 
-                                            color={(repostStates[`scribe_${selectedScribe.id}`]?.is_reposted) ? "#10B981" : colors.textSecondary} 
+                                        <Icon
+                                            name={(repostStates[`scribe_${selectedScribe.id}`]?.is_reposted) ? "repeat" : "repeat-outline"}
+                                            size={26}
+                                            color={(repostStates[`scribe_${selectedScribe.id}`]?.is_reposted) ? "#10B981" : colors.textSecondary}
                                         />
                                     </TouchableOpacity>
                                     <TouchableOpacity style={styles.modalActionButton} onPress={handleModalSave}>
@@ -1922,7 +2019,7 @@ export default function ExploreScreen() {
                     </TouchableOpacity>
                 </TouchableOpacity>
             </Modal>
-            
+
             {commentScribeId && (
                 <ScribeCommentsSheet
                     isVisible={isCommentsVisible}
@@ -1934,6 +2031,17 @@ export default function ExploreScreen() {
                         if (selectedScribe) {
                             updateFeedItem(selectedScribe.id, { comments: modalCommentCount + 1 });
                         }
+                    }}
+                />
+            )}
+            {commentOmzoId && (
+                <OmzoCommentsSheet
+                    isVisible={isOmzoCommentsVisible}
+                    onClose={closeOmzoComments}
+                    omzoId={commentOmzoId}
+                    initialCommentCount={commentCountForSheet}
+                    onCommentAdded={() => {
+                        // Optional: update local state if needed
                     }}
                 />
             )}
@@ -1996,16 +2104,11 @@ const styles = StyleSheet.create({
     },
     // Explore Omzo card styles
     exploreOmzoCard: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 16,
-        marginHorizontal: 12,
-        marginBottom: 12,
+        backgroundColor: '#020617', // Match overall screen deep dark
+        borderRadius: 24,
+        marginHorizontal: 16,
+        marginBottom: 16,
         padding: 16,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
-        shadowRadius: 8,
-        elevation: 2,
     },
     exploreOmzoHeader: {
         flexDirection: 'row',
@@ -2312,17 +2415,25 @@ const styles = StyleSheet.create({
     omzoStatsRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 16,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderRadius: 16,
+        marginTop: 12,
+        borderWidth: 1,
     },
     omzoStatItem: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 4,
+        gap: 8,
+        marginRight: 16,
+    },
+    omzoStatItemIcon: {
+        paddingHorizontal: 8,
     },
     omzoStatText: {
-        color: '#FFFFFF',
-        fontSize: 13,
+        fontSize: 14,
         fontWeight: '600',
+        marginLeft: 4,
     },
     emptyState: {
         alignItems: 'center',

@@ -80,7 +80,7 @@ export function transformOmzoData(omzo: any): any {
         views_count: omzo.views !== undefined ? omzo.views : (omzo.views_count || 0),
         like_count: omzo.likes !== undefined ? omzo.likes : (omzo.like_count || 0),
         dislike_count: omzo.dislikes !== undefined ? omzo.dislikes : (omzo.dislike_count || 0),
-        comment_count: omzo.comments_count !== undefined ? omzo.comments_count : (omzo.comment_count || 0),
+        comment_count: omzo.comments_count !== undefined ? omzo.comments_count : (omzo.comment_count || omzo.comments || 0),
         is_liked: omzo.is_liked || false,
         is_disliked: omzo.is_disliked || false,
         is_muted: omzo.is_muted || false,

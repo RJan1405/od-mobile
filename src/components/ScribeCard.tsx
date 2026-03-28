@@ -7,6 +7,9 @@ import {
     StyleSheet,
     ScrollView,
     Alert,
+    Platform,
+    Share,
+    DeviceEventEmitter,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import Video from 'react-native-video';
@@ -25,6 +28,7 @@ interface ScribeCardProps {
     onSaveToggle?: (scribeId: number, isSaved: boolean) => void;
     onPress?: () => void;
     onCommentPress?: () => void;
+    onDelete?: (scribeId: number) => void;
 }
 
 // Format counts (1K, 1M)
@@ -57,14 +61,14 @@ const formatRelativeTime = (timestamp?: string | null): string => {
 };
 
 // Parse content and highlight hashtags/mentions
-function renderContent(content: string, textColor: string) {
+function renderContent(content: string, textColor: string, hashtagColor: string) {
     const parts = content.split(/(#\w+|@\w+)/g);
     return (
         <Text style={[styles.content, { color: textColor }]}>
             {parts.map((part, idx) => {
                 if (part.startsWith('#') || part.startsWith('@')) {
                     return (
-                        <Text key={idx} style={styles.hashtag}>
+                        <Text key={idx} style={[styles.hashtag, { color: hashtagColor }]}>
                             {part}
                         </Text>
                     );
@@ -102,7 +106,7 @@ const ScribeImage = ({ uri }: { uri: string }) => {
     );
 };
 
-export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPress }: ScribeCardProps) {
+export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPress, onDelete }: ScribeCardProps) {
     const navigation = useNavigation();
     const { colors } = useThemeStore();
     const { user: currentUser } = useAuthStore();
@@ -115,6 +119,7 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
 
     // Display settings
     const [activeTab, setActiveTab] = useState<'preview' | 'code'>('preview');
+    const [webviewHeight, setWebviewHeight] = useState(300);
 
     // Global stores
     const { interactions, setInteraction } = useInteractionStore();
@@ -178,63 +183,80 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
         const newIsLiked = !isLiked;
         const newLikeCount = isLiked ? Math.max(0, likeCount - 1) : likeCount + 1;
 
-        setInteraction('scribe', scribe.id, {
+        setInteraction('scribe', displayScribe.id, {
             is_liked: newIsLiked,
             like_count: newLikeCount
         });
 
         try {
-            const response = await api.toggleLike(scribe.id);
+            // Use the correct API based on content type
+            const isOmzo = displayScribe.original_type === 'omzo' || !!displayScribe.original_omzo;
+            const response = isOmzo 
+                ? await api.toggleOmzoLike(displayScribe.id)
+                : await api.toggleLike(displayScribe.id);
+
             if (response.success) {
-                setInteraction('scribe', scribe.id, {
+                setInteraction('scribe', displayScribe.id, {
                     is_liked: (response as any).is_liked,
                     like_count: (response as any).like_count,
                     is_disliked: (response as any).is_disliked,
                     dislike_count: (response as any).dislike_count
                 });
             } else {
-                setInteraction('scribe', scribe.id, prevInteraction);
+                setInteraction('scribe', displayScribe.id, prevInteraction);
             }
         } catch {
-            setInteraction('scribe', scribe.id, prevInteraction);
+            setInteraction('scribe', displayScribe.id, prevInteraction);
         }
     };
 
     const handleSave = async () => {
-        const prevSaved = isSaved;
+        const prevInteraction = interaction;
 
         // Optimistic update
-        setInteraction('scribe', scribe.id, { is_saved: !isSaved });
+        const newIsSaved = !isSaved;
+        setInteraction('scribe', displayScribe.id, { is_saved: newIsSaved });
 
         try {
-            const response = await api.toggleSaveScribe(scribe.id);
+            // Use correct API based on content type
+            const isOmzo = displayScribe.original_type === 'omzo' || !!displayScribe.original_omzo;
+            const response = isOmzo
+                ? await api.toggleSaveOmzo(displayScribe.id)
+                : await api.toggleSaveScribe(displayScribe.id);
+
             if (response.success) {
-                setInteraction('scribe', scribe.id, { is_saved: (response as any).is_saved });
-                onSaveToggle?.(scribe.id, (response as any).is_saved);
+                const actual = response.is_saved ?? newIsSaved;
+                setInteraction('scribe', displayScribe.id, { is_saved: actual });
+                onSaveToggle?.(displayScribe.id, actual);
             } else {
-                setInteraction('scribe', scribe.id, { is_saved: prevSaved });
+                setInteraction('scribe', displayScribe.id, prevInteraction);
             }
         } catch {
-            setInteraction('scribe', scribe.id, { is_saved: prevSaved });
+            setInteraction('scribe', displayScribe.id, prevInteraction);
         }
     };
 
     const handleRepost = async () => {
         const prevInteraction = interaction;
 
-        // Optimistic update in global store
-        const newReposted = !isReposted;
+        // Optimistic update
+        const newIsReposted = !isReposted;
         const newCount = isReposted ? Math.max(0, repostCount - 1) : repostCount + 1;
 
         setInteraction('scribe', displayScribe.id, {
-            is_reposted: newReposted,
+            is_reposted: newIsReposted,
             repost_count: newCount
         });
 
         try {
-            const response = await api.toggleRepostScribe(displayScribe.id);
+            // Use correct API based on content type
+            const isOmzo = displayScribe.original_type === 'omzo' || !!displayScribe.original_omzo;
+            const response = isOmzo
+                ? await api.toggleRepostOmzo(displayScribe.id)
+                : await api.toggleRepostScribe(displayScribe.id);
+
             if (response.success) {
-                const actualReposted = response.is_reposted ?? newReposted;
+                const actualReposted = response.is_reposted ?? newIsReposted;
                 setInteraction('scribe', displayScribe.id, {
                     is_reposted: actualReposted
                 });
@@ -285,6 +307,52 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
         }
     };
 
+    const handleMorePress = () => {
+        const options = [];
+        
+        if (isOwnScribe) {
+            options.push({
+                text: 'Delete Scribe',
+                style: 'destructive' as const,
+                onPress: () => {
+                    Alert.alert(
+                        'Delete Scribe',
+                        'Are you sure you want to delete this post? This action cannot be undone.',
+                        [
+                            { text: 'Cancel', style: 'cancel' },
+                            { 
+                                text: 'Delete', 
+                                style: 'destructive',
+                                onPress: async () => {
+                                    try {
+                                        const response = await api.deleteScribe(displayScribe.id);
+                                        if (response.success) {
+                                            onDelete?.(displayScribe.id);
+                                            DeviceEventEmitter.emit('SCRIBE_DELETED', { scribeId: displayScribe.id });
+                                        } else {
+                                            Alert.alert('Error', response.error || 'Failed to delete scribe');
+                                        }
+                                    } catch (err) {
+                                        Alert.alert('Error', 'An error occurred while deleting');
+                                    }
+                                }
+                            }
+                        ]
+                    );
+                }
+            });
+        } else {
+            options.push({
+                text: 'Report Scribe',
+                onPress: () => Alert.alert('Report', 'Thank you for reporting. We will review this content.')
+            });
+        }
+
+        options.push({ text: 'Cancel', style: 'cancel' as const });
+
+        Alert.alert('Options', '', options);
+    };
+
     const handleProfilePress = () => {
         if (!scribe.user?.username) return;
         (navigation as any).navigate('Profile', { username: scribe.user.username });
@@ -308,14 +376,38 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
             <head>
                 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
                 <style>
-                    body { margin: 0; padding: 0; }
+                    body { 
+                        margin: 0; 
+                        padding: 0; 
+                        overflow: hidden; 
+                        background: #FFFFFF;
+                    }
                     ${displayScribe.code_css || ''}
                 </style>
             </head>
             <body>
-                ${displayScribe.code_html || ''}
+                <div id="content-wrapper">
+                    ${displayScribe.code_html || ''}
+                </div>
                 <script>
                     ${displayScribe.code_js || ''}
+                    
+                    // Function to send height to React Native
+                    function sendHeight() {
+                        const height = document.getElementById('content-wrapper').scrollHeight;
+                        window.ReactNativeWebView.postMessage(JSON.stringify({ height }));
+                    }
+
+                    // Send height on load and any changes
+                    window.onload = sendHeight;
+                    
+                    // Optional: MutationObserver to detect content changes
+                    const observer = new MutationObserver(sendHeight);
+                    observer.observe(document.getElementById('content-wrapper'), {
+                        childList: true,
+                        subtree: true,
+                        attributes: true
+                    });
                 </script>
             </body>
             </html>
@@ -331,12 +423,12 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
     const originalOmzo = scribe.original_omzo || (scribe.original_type === 'omzo' ? scribe.original_data : null);
 
     return (
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: colors.surface, shadowColor: colors.text }]}>
             {/* Repost Header Banner - Show if this is a repost of any kind */}
             {(isSimpleRepost || isQuoteScribe) && (
                 <View style={styles.repostBanner}>
-                    <Icon name="repeat-outline" size={14} color="#6B7280" />
-                    <Text style={styles.repostBannerText}>
+                    <Icon name="repeat-outline" size={14} color={colors.textSecondary} />
+                    <Text style={[styles.repostBannerText, { color: colors.textSecondary }]}>
                         {scribe.user?.full_name || scribe.user?.username || 'Someone'} reposted
                     </Text>
                 </View>
@@ -344,13 +436,13 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
 
             {/* If Quote Scribe, show the original content in a box */}
             {isQuoteScribe && originalScribe && (
-                <View style={styles.originalContentBox}>
+                <View style={[styles.originalContentBox, { borderColor: colors.border, backgroundColor: colors.background }]}>
                     <View style={styles.originalHeader}>
                         <View style={styles.originalAvatarWrap}>
                             {originalScribe.user?.profile_picture_url || originalScribe.user?.avatar ? (
                                 <Image source={{ uri: originalScribe.user.profile_picture_url || originalScribe.user.avatar }} style={styles.originalAvatar} />
                             ) : (
-                                <View style={[styles.originalAvatar, styles.avatarFallback]}>
+                                <View style={[styles.originalAvatar, styles.avatarFallback, { backgroundColor: colors.primary }]}>
                                     <Text style={styles.avatarLetter}>
                                         {originalScribe.user?.username?.[0]?.toUpperCase() || originalScribe.user?.display_name?.[0]?.toUpperCase() || '?'}
                                     </Text>
@@ -358,19 +450,19 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
                             )}
                         </View>
                         <View>
-                            <Text style={styles.originalDisplayName}>
+                            <Text style={[styles.originalDisplayName, { color: colors.text }]}>
                                 {originalScribe.user?.full_name || originalScribe.user?.display_name || originalScribe.user?.username || 'Unknown'}
                             </Text>
-                            <Text style={styles.originalHandle}>@{originalScribe.user?.username || 'unknown'}</Text>
+                            <Text style={[styles.originalHandle, { color: colors.textSecondary }]}>@{originalScribe.user?.username || 'unknown'}</Text>
                         </View>
                     </View>
                     {originalScribe.content ? (
-                        <Text style={styles.originalContent}>{originalScribe.content}</Text>
+                        <Text style={[styles.originalContent, { color: colors.textSecondary }]}>{originalScribe.content}</Text>
                     ) : null}
                     {(originalScribe.media_url || originalScribe.image_url || originalScribe.image) ? (
                         <Image
                             source={{ uri: (originalScribe.media_url || originalScribe.image_url || originalScribe.image)! }}
-                            style={styles.originalImage}
+                            style={[styles.originalImage, { backgroundColor: colors.border }]}
                             resizeMode="cover"
                         />
                     ) : null}
@@ -379,13 +471,13 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
 
             {/* If Quote Scribe of an Omzo, show Omzo preview */}
             {isQuoteScribe && originalOmzo && (
-                <View style={styles.originalContentBox}>
+                <View style={[styles.originalContentBox, { borderColor: colors.border, backgroundColor: colors.background }]}>
                     <View style={styles.originalHeader}>
                         <View style={styles.originalAvatarWrap}>
                             {originalOmzo.user?.profile_picture_url || originalOmzo.user_avatar || originalOmzo.user?.avatar ? (
                                 <Image source={{ uri: (originalOmzo.user?.profile_picture_url || originalOmzo.user_avatar || originalOmzo.user?.avatar)! }} style={styles.originalAvatar} />
                             ) : (
-                                <View style={[styles.originalAvatar, styles.avatarFallback]}>
+                                <View style={[styles.originalAvatar, styles.avatarFallback, { backgroundColor: colors.primary }]}>
                                     <Text style={styles.avatarLetter}>
                                         {(originalOmzo.user?.username || originalOmzo.user?.display_name || originalOmzo.username || '?')[0]?.toUpperCase()}
                                     </Text>
@@ -393,21 +485,21 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
                             )}
                         </View>
                         <View>
-                            <Text style={styles.originalDisplayName}>
+                            <Text style={[styles.originalDisplayName, { color: colors.text }]}>
                                 {originalOmzo.user?.full_name || originalOmzo.user?.display_name || originalOmzo.user?.username || originalOmzo.username || 'Unknown'}
                             </Text>
-                            <Text style={styles.originalHandle}>@{originalOmzo.user?.username || originalOmzo.username || 'unknown'}</Text>
+                            <Text style={[styles.originalHandle, { color: colors.textSecondary }]}>@{originalOmzo.user?.username || originalOmzo.username || 'unknown'}</Text>
                         </View>
                     </View>
                     <View style={styles.omzoBadge}>
-                        <Icon name="videocam-outline" size={14} color="#6366F1" />
-                        <Text style={styles.omzoBadgeText}>Omzo · {originalOmzo.caption || 'Video'}</Text>
+                        <Icon name="videocam-outline" size={14} color={colors.secondary} />
+                        <Text style={[styles.omzoBadgeText, { color: colors.secondary }]}>Omzo · {originalOmzo.caption || 'Video'}</Text>
                     </View>
                     {(originalOmzo.video_url || originalOmzo.video_file || originalOmzo.media_url) ? (
                         <View style={styles.originalVideoContainer}>
                             <Video
                                 source={{ uri: (originalOmzo.video_url || originalOmzo.video_file || originalOmzo.media_url)! }}
-                                style={styles.originalImage}
+                                style={[styles.originalImage, { backgroundColor: colors.border }]}
                                 paused={true}
                                 resizeMode="cover"
                                 poster={(originalOmzo.thumbnail_url || originalOmzo.video_url || originalOmzo.video_file || originalOmzo.media_url)!}
@@ -434,7 +526,7 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
                             {hasValidAvatar ? (
                                 <Image source={{ uri: avatarUri }} style={styles.avatar} />
                             ) : (
-                                <View style={[styles.avatar, styles.cardAvatarFallback]}>
+                                <View style={[styles.avatar, styles.cardAvatarFallback, { backgroundColor: colors.primary }]}>
                                     <Text style={styles.cardAvatarLetter}>
                                         {displayScribe.user?.username?.[0]?.toUpperCase() || '?'}
                                     </Text>
@@ -445,118 +537,99 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
                         <View style={styles.headerMid}>
                             <View style={styles.nameRow}>
                                 <TouchableOpacity onPress={handleProfilePress} activeOpacity={0.85}>
-                                    <Text style={styles.displayName}>
+                                    <Text style={[styles.displayName, { color: colors.text }]}>
                                         {displayScribe.user?.full_name || displayScribe.user?.username || 'Unknown'}
                                     </Text>
                                 </TouchableOpacity>
                                 {displayScribe.user?.is_verified && (
-                                    <Icon name="checkmark-circle" size={14} color="#3B82F6" style={{ marginLeft: 3 }} />
+                                    <Icon name="checkmark-circle" size={14} color={colors.primary} style={{ marginLeft: 1 }} />
                                 )}
+                                
+                                {!isOwnScribe && (
+                                    <TouchableOpacity
+                                        onPress={handleFollow}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={[
+                                            styles.followLinkText, 
+                                            { color: colors.primary },
+                                            isFollowing && { color: colors.textSecondary }
+                                        ]}>
+                                            {isFollowing ? 'Following' : 'Follow'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                )}
+
                                 {relativeTime ? (
-                                    <Text style={styles.dotSep}>·</Text>
-                                ) : null}
-                                {relativeTime ? (
-                                    <Text style={styles.timestamp}>{relativeTime}</Text>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                        <Text style={[styles.dotSep, { color: colors.textSecondary }]}>·</Text>
+                                        <Text style={[styles.timestamp, { color: colors.textSecondary }]}>{relativeTime}</Text>
+                                    </View>
                                 ) : null}
                             </View>
-                            <Text style={styles.handle}>@{displayScribe.user?.username || 'unknown'}</Text>
+                            <Text style={[styles.handle, { color: colors.textSecondary }]}>@{displayScribe.user?.username || 'unknown'}</Text>
                         </View>
 
-                        {!isOwnScribe && (
-                            <TouchableOpacity
-                                style={[styles.followPill, isFollowing && styles.followPillActive]}
-                                onPress={handleFollow}
-                                activeOpacity={0.8}
-                            >
-                                <Text style={[styles.followPillText, isFollowing && styles.followPillTextActive]}>
-                                    {isFollowing ? 'Following' : 'Follow'}
-                                </Text>
-                            </TouchableOpacity>
-                        )}
-
-                        <TouchableOpacity style={styles.moreBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                            <Icon name="ellipsis-horizontal" size={18} color="#9CA3AF" />
+                        <TouchableOpacity 
+                            style={styles.moreBtn} 
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            onPress={handleMorePress}
+                        >
+                            <Icon name="ellipsis-horizontal" size={18} color={colors.textSecondary} />
                         </TouchableOpacity>
                     </View>
 
                     {/* Content */}
-                    {displayScribe.content ? renderContent(displayScribe.content, '#111827') : null}
+                    {displayScribe.content ? renderContent(displayScribe.content, colors.text, colors.primary) : null}
 
                     {/* Code snippets & Live Preview */}
+                    {/* Code snippets & Live Preview - macOS Style Window */}
                     {hasCode && (
-                        <View style={styles.codeContainer}>
-                            <View style={styles.tabContainer}>
-                                <TouchableOpacity
-                                    style={[styles.tabButton, activeTab === 'preview' && styles.tabButtonActive]}
-                                    onPress={() => setActiveTab('preview')}
-                                >
-                                    <Icon name="play" size={14} color={activeTab === 'preview' ? '#3B82F6' : '#6B7280'} />
-                                    <Text style={[styles.tabText, activeTab === 'preview' && styles.tabTextActive]}>Live Preview</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[styles.tabButton, activeTab === 'code' && styles.tabButtonActive]}
-                                    onPress={() => setActiveTab('code')}
-                                >
-                                    <Icon name="code" size={14} color={activeTab === 'code' ? '#3B82F6' : '#6B7280'} />
-                                    <Text style={[styles.tabText, activeTab === 'code' && styles.tabTextActive]}>Source Code</Text>
-                                </TouchableOpacity>
+                        <View style={[styles.windowContainer, { borderColor: colors.border + '40', borderWidth: 1, borderRadius: 16, overflow: 'hidden', marginTop: 12 }]}>
+                            <View style={[styles.windowHeader, { backgroundColor: colors.background }]}>
+                                <View style={styles.windowDots}>
+                                    <View style={[styles.windowDot, { backgroundColor: '#FF5F56' }]} />
+                                    <View style={[styles.windowDot, { backgroundColor: '#FFBD2E' }]} />
+                                    <View style={[styles.windowDot, { backgroundColor: '#27C93F' }]} />
+                                </View>
+                                <Text style={[styles.windowTitle, { color: colors.textSecondary }]}>HTML Preview</Text>
                             </View>
-
-                            {activeTab === 'preview' ? (
-                                <View style={styles.webviewContainer}>
-                                    <WebView
-                                        source={{ html: generateHtmlContent() }}
-                                        style={styles.webview}
-                                        scrollEnabled={false}
-                                        showsVerticalScrollIndicator={false}
-                                        showsHorizontalScrollIndicator={false}
-                                    />
-                                </View>
-                            ) : (
-                                <View>
-                                    {displayScribe.code_html ? (
-                                        <View style={styles.codeBlock}>
-                                            <View style={styles.codeHeader}>
-                                                <Text style={styles.codeLang}>HTML</Text>
-                                                <Icon name="code-slash" size={14} color="#3B82F6" />
-                                            </View>
-                                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.codeScroll}>
-                                                <Text style={styles.codeText}>{displayScribe.code_html.trimEnd()}</Text>
-                                            </ScrollView>
-                                        </View>
-                                    ) : null}
-
-                                    {displayScribe.code_css ? (
-                                        <View style={styles.codeBlock}>
-                                            <View style={styles.codeHeader}>
-                                                <Text style={styles.codeLang}>CSS</Text>
-                                                <Icon name="color-palette-outline" size={14} color="#10B981" />
-                                            </View>
-                                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.codeScroll}>
-                                                <Text style={styles.codeText}>{displayScribe.code_css.trimEnd()}</Text>
-                                            </ScrollView>
-                                        </View>
-                                    ) : null}
-
-                                    {displayScribe.code_js ? (
-                                        <View style={styles.codeBlock}>
-                                            <View style={styles.codeHeader}>
-                                                <Text style={styles.codeLang}>JS</Text>
-                                                <Icon name="logo-javascript" size={14} color="#F59E0B" />
-                                            </View>
-                                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.codeScroll}>
-                                                <Text style={styles.codeText}>{displayScribe.code_js.trimEnd()}</Text>
-                                            </ScrollView>
-                                        </View>
-                                    ) : null}
-                                </View>
-                            )}
+                            
+                            <View style={[
+                                styles.webviewContainer, 
+                                { 
+                                    height: Math.max(200, webviewHeight),
+                                    backgroundColor: '#FFFFFF', 
+                                    borderTopWidth: 1,
+                                    borderTopColor: colors.border + '40'
+                                }
+                            ]}>
+                                <WebView
+                                    source={{ html: generateHtmlContent() }}
+                                    style={styles.webview}
+                                    scrollEnabled={false}
+                                    showsVerticalScrollIndicator={false}
+                                    showsHorizontalScrollIndicator={false}
+                                    onMessage={(event) => {
+                                        try {
+                                            const data = JSON.parse(event.nativeEvent.data);
+                                            if (data.height) {
+                                                setWebviewHeight(data.height + 20); // Add some padding
+                                            }
+                                        } catch (e) {
+                                            console.warn("Failed to parse height from WebView", e);
+                                        }
+                                    }}
+                                />
+                            </View>
                         </View>
                     )}
 
                     {/* Image */}
                     {hasValidImage && !hasValidVideo && (
-                        <ScribeImage uri={imageUri} />
+                        <View style={[styles.image, { backgroundColor: colors.background }]}>
+                            <ScribeImage uri={imageUri} />
+                        </View>
                     )}
 
                     {/* Video (for Omzo simple reposts) */}
@@ -564,7 +637,7 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
                         <View style={styles.originalVideoContainer}>
                             <Video
                                 source={{ uri: videoUri }}
-                                style={styles.originalImage}
+                                style={[styles.originalImage, { backgroundColor: colors.background }]}
                                 paused={true}
                                 resizeMode="cover"
                                 poster={imageUri || videoUri}
@@ -578,24 +651,23 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
                 </TouchableOpacity>
             )}
 
-            {/* Action Bar */}
-            <View style={styles.actions}>
+            <View style={[styles.actions, { backgroundColor: colors.background, borderColor: colors.border + '40' }]}>
                 {/* Like */}
                 <TouchableOpacity style={styles.actionBtn} onPress={handleLike} activeOpacity={0.7}>
                     <Icon
                         name={isLiked ? 'heart' : 'heart-outline'}
-                        size={20}
-                        color={isLiked ? '#EF4444' : '#9CA3AF'}
+                        size={22}
+                        color={isLiked ? '#FF3B5C' : colors.textSecondary}
                     />
-                    <Text style={[styles.actionCount, isLiked && { color: '#EF4444' }]}>
+                    <Text style={[styles.actionCount, { color: colors.textSecondary }, isLiked && { color: '#FF3B5C' }]}>
                         {formatCount(likeCount)}
                     </Text>
                 </TouchableOpacity>
 
                 {/* Comment */}
                 <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7} onPress={onCommentPress || onPress}>
-                    <Icon name="chatbubble-outline" size={20} color="#9CA3AF" />
-                    <Text style={styles.actionCount}>
+                    <Icon name="chatbubble-outline" size={20} color={colors.textSecondary} />
+                    <Text style={[styles.actionCount, { color: colors.textSecondary }]}>
                         {formatCount(interactions[interactionKey]?.comment_count ?? displayScribe.comment_count ?? 0)}
                     </Text>
                 </TouchableOpacity>
@@ -604,10 +676,10 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
                 <TouchableOpacity style={styles.actionBtn} onPress={handleRepost} activeOpacity={0.7}>
                     <Icon
                         name={isReposted ? 'repeat' : 'repeat-outline'}
-                        size={20}
-                        color={isReposted ? '#10B981' : '#9CA3AF'}
+                        size={22}
+                        color={isReposted ? colors.success : colors.textSecondary}
                     />
-                    <Text style={[styles.actionCount, isReposted && { color: '#10B981' }]}>
+                    <Text style={[styles.actionCount, { color: colors.textSecondary }, isReposted && { color: colors.success }]}>
                         {formatCount(repostCount)}
                     </Text>
                 </TouchableOpacity>
@@ -618,14 +690,32 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
                 <TouchableOpacity style={styles.actionIconBtn} onPress={handleSave} activeOpacity={0.7}>
                     <Icon
                         name={isSaved ? 'bookmark' : 'bookmark-outline'}
-                        size={20}
-                        color={isSaved ? '#3B82F6' : '#9CA3AF'}
+                        size={22}
+                        color={isSaved ? colors.primary : colors.textSecondary}
                     />
                 </TouchableOpacity>
 
                 {/* Share / Send */}
-                <TouchableOpacity style={styles.actionIconBtn} activeOpacity={0.7}>
-                    <Icon name="paper-plane-outline" size={20} color="#9CA3AF" />
+                <TouchableOpacity 
+                    style={styles.actionIconBtn} 
+                    activeOpacity={0.7}
+                    onPress={async () => {
+                        try {
+                            const shareUrl = `https://odnix.com/${displayScribe.original_type === 'omzo' ? 'omzo' : 'post'}/${displayScribe.id}`;
+                            const message = displayScribe.original_type === 'omzo'
+                                ? `Check out this video by @${displayScribe.user?.username} on Odnix: ${displayScribe.content || ''}\n${shareUrl}`
+                                : `Check out this post by @${displayScribe.user?.username} on Odnix: ${displayScribe.content || ''}\n${shareUrl}`;
+                            
+                            await Share.share({
+                                message,
+                                url: shareUrl,
+                            });
+                        } catch (error) {
+                            console.error('Error sharing:', error);
+                        }
+                    }}
+                >
+                    <Icon name="paper-plane-outline" size={20} color={colors.textSecondary} />
                 </TouchableOpacity>
             </View>
         </View>
@@ -634,16 +724,12 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
 
 const styles = StyleSheet.create({
     card: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 16,
-        marginHorizontal: 12,
-        marginBottom: 12,
+        borderRadius: 24,
+        marginHorizontal: 16,
+        marginBottom: 16,
         padding: 16,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
-        shadowRadius: 8,
-        elevation: 2,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.05)',
     },
     repostBanner: {
         flexDirection: 'row',
@@ -653,16 +739,13 @@ const styles = StyleSheet.create({
     },
     repostBannerText: {
         fontSize: 12,
-        color: '#6B7280',
         fontWeight: '500',
     },
     originalContentBox: {
         borderWidth: 1,
-        borderColor: '#E5E7EB',
         borderRadius: 12,
         padding: 12,
         marginBottom: 12,
-        backgroundColor: '#F9FAFB',
     },
     originalHeader: {
         flexDirection: 'row',
@@ -682,7 +765,6 @@ const styles = StyleSheet.create({
         borderRadius: 8,
     },
     avatarFallback: {
-        backgroundColor: '#3B82F6',
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -694,15 +776,12 @@ const styles = StyleSheet.create({
     originalDisplayName: {
         fontSize: 13,
         fontWeight: '700',
-        color: '#111827',
     },
     originalHandle: {
         fontSize: 12,
-        color: '#9CA3AF',
     },
     originalContent: {
         fontSize: 14,
-        color: '#374151',
         lineHeight: 20,
         marginBottom: 6,
     },
@@ -711,7 +790,6 @@ const styles = StyleSheet.create({
         height: 160,
         borderRadius: 8,
         marginTop: 6,
-        backgroundColor: '#E5E7EB',
     },
     omzoBadge: {
         flexDirection: 'row',
@@ -721,7 +799,6 @@ const styles = StyleSheet.create({
     },
     omzoBadgeText: {
         fontSize: 13,
-        color: '#6366F1',
         fontWeight: '500',
     },
     header: {
@@ -737,7 +814,6 @@ const styles = StyleSheet.create({
         borderRadius: 10,
     },
     cardAvatarFallback: {
-        backgroundColor: '#3B82F6',
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -758,39 +834,19 @@ const styles = StyleSheet.create({
     displayName: {
         fontSize: 15,
         fontWeight: '700',
-        color: '#111827',
     },
-    followPill: {
-        paddingHorizontal: 14,
-        paddingVertical: 5,
-        borderRadius: 20,
-        borderWidth: 1.5,
-        borderColor: '#3B82F6',
-        marginLeft: 2,
-        marginRight: 6,
-    },
-    followPillActive: {
-        backgroundColor: '#3B82F6',
-        borderColor: '#3B82F6',
-    },
-    followPillText: {
-        fontSize: 12,
+    followLinkText: {
+        fontSize: 14,
         fontWeight: '700',
-        color: '#3B82F6',
-    },
-    followPillTextActive: {
-        color: '#FFFFFF',
+        marginLeft: 6,
     },
     dotSep: {
-        color: '#9CA3AF',
         fontSize: 13,
     },
     timestamp: {
-        color: '#9CA3AF',
         fontSize: 13,
     },
     handle: {
-        color: '#9CA3AF',
         fontSize: 13,
         marginTop: 2,
     },
@@ -800,69 +856,54 @@ const styles = StyleSheet.create({
     content: {
         fontSize: 15,
         lineHeight: 22,
-        color: '#111827',
         marginBottom: 12,
     },
     hashtag: {
-        color: '#3B82F6',
         fontWeight: '500',
     },
     image: {
         width: '100%',
         borderRadius: 12,
         marginBottom: 12,
-        backgroundColor: '#F3F4F6', // show light grey background while loading
+        overflow: 'hidden',
     },
-    codeContainer: {
+    windowContainer: {
         marginBottom: 12,
-        gap: 8,
-    },
-    tabContainer: {
-        flexDirection: 'row',
-        backgroundColor: '#F3F4F6',
-        borderRadius: 8,
-        padding: 4,
-        marginBottom: 4,
-    },
-    tabButton: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 8,
-        borderRadius: 6,
-        gap: 6,
-    },
-    tabButtonActive: {
-        backgroundColor: '#FFFFFF',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-        elevation: 2,
-    },
-    tabText: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: '#6B7280',
-    },
-    tabTextActive: {
-        color: '#3B82F6',
-    },
-    webviewContainer: {
-        height: 400, // Increased height for better visibility
-        backgroundColor: '#FFFFFF',
-        borderRadius: 8,
+        borderRadius: 12,
         overflow: 'hidden',
         borderWidth: 1,
-        borderColor: '#E5E7EB',
+        borderColor: 'rgba(255, 255, 255, 0.05)',
+    },
+    windowHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        gap: 12,
+    },
+    windowDots: {
+        flexDirection: 'row',
+        gap: 6,
+    },
+    windowDot: {
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+    },
+    windowTitle: {
+        fontSize: 12,
+        fontWeight: '600',
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    },
+    webviewContainer: {
+        overflow: 'hidden',
+        borderTopWidth: 1,
     },
     webview: {
         flex: 1,
         backgroundColor: 'transparent',
     },
     codeBlock: {
-        backgroundColor: '#F3F4F6',
         borderRadius: 8,
         overflow: 'hidden',
         marginBottom: 8,
@@ -873,48 +914,42 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         paddingHorizontal: 12,
         paddingVertical: 6,
-        backgroundColor: '#E5E7EB',
         borderBottomWidth: 1,
-        borderBottomColor: '#D1D5DB',
     },
     codeLang: {
         fontSize: 12,
         fontWeight: '600',
-        color: '#374151',
     },
     codeScroll: {
         padding: 12,
-        maxHeight: 400, // Let source code box expand up to 400px
+        maxHeight: 400,
     },
     codeText: {
         fontFamily: 'monospace',
         fontSize: 13,
-        color: '#1F2937',
     },
     actions: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 4,
-        paddingTop: 10,
-        borderTopWidth: 1,
-        borderTopColor: '#F3F4F6',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderRadius: 16,
+        marginTop: 12,
+        borderWidth: 1,
     },
     actionBtn: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 5,
-        paddingVertical: 4,
-        paddingHorizontal: 6,
-        marginRight: 4,
+        gap: 8,
+        marginRight: 16,
     },
     actionCount: {
         fontSize: 14,
-        color: '#9CA3AF',
         fontWeight: '600',
+        marginLeft: 4,
     },
     actionIconBtn: {
-        paddingVertical: 4,
-        paddingHorizontal: 6,
+        paddingHorizontal: 8,
     },
     originalVideoContainer: {
         position: 'relative',

@@ -11,6 +11,7 @@ import {
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '@/stores/themeStore';
 import { useNavigation } from '@react-navigation/native';
+import NewScribeModal from './NewScribeModal';
 
 interface CreateActionModalProps {
     visible: boolean;
@@ -20,10 +21,10 @@ interface CreateActionModalProps {
 export default function CreateActionModal({ visible, onClose }: CreateActionModalProps) {
     const { colors } = useThemeStore();
     const navigation = useNavigation<any>();
+    const [showScribe, setShowScribe] = React.useState(false);
 
     const handleCreateScribe = () => {
-        onClose();
-        navigation.navigate('CreateScribe');
+        setShowScribe(true);
     };
 
     const handleCreateOmzo = () => {
@@ -84,6 +85,14 @@ export default function CreateActionModal({ visible, onClose }: CreateActionModa
                     </TouchableWithoutFeedback>
                 </View>
             </TouchableWithoutFeedback>
+            <NewScribeModal 
+                visible={showScribe} 
+                onClose={() => setShowScribe(false)} 
+                onSuccess={() => {
+                    setShowScribe(false);
+                    onClose();
+                }}
+            />
         </Modal>
     );
 }

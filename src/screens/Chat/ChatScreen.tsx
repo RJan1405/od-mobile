@@ -876,48 +876,67 @@ export default function ChatScreen() {
                 )}
 
                 {!currentChat?.is_message_request && !currentChat?.is_other_blocked && !currentChat?.am_i_blocked && (
-                    <View style={[styles.inputContainer, { borderTopColor: colors.border }]}>
-                        <TouchableOpacity
-                            style={[styles.attachButton, isAttachMenuVisible && { backgroundColor: colors.background }]}
-                            onPress={() => setIsAttachMenuVisible(!isAttachMenuVisible)}
-                        >
-                            <Icon name="attach-outline" size={26} color={colors.textSecondary} />
-                        </TouchableOpacity>
+                    <>
+                        {isOneTimeMode && (
+                            <View style={[styles.oneTimeBanner, { backgroundColor: colors.primary + '10', borderBottomWidth: 1, borderBottomColor: colors.border }]}>
+                                <View style={styles.oneTimeBannerLeft}>
+                                    <Icon name="eye-outline" size={18} color={colors.primary} style={{ marginRight: 8 }} />
+                                    <View>
+                                        <Text style={[styles.oneTimeBannerText, { color: colors.primary }]}>One-time view mode</Text>
+                                        <Text style={{ fontSize: 11, color: colors.textSecondary }}>Disappears after it's opened once</Text>
+                                    </View>
+                                </View>
+                                <TouchableOpacity 
+                                    onPress={() => setIsOneTimeMode(false)}
+                                    style={styles.oneTimeCancelBtn}
+                                >
+                                    <Text style={[styles.oneTimeCancelText, { color: colors.primary }]}>Cancel</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+                        <View style={[styles.inputContainer, { borderTopColor: colors.border, borderTopWidth: isOneTimeMode ? 0 : 1 }]}>
+                            <TouchableOpacity
+                                style={[styles.attachButton, isAttachMenuVisible && { backgroundColor: colors.background }]}
+                                onPress={() => setIsAttachMenuVisible(!isAttachMenuVisible)}
+                            >
+                                <Icon name="attach-outline" size={26} color={colors.textSecondary} />
+                            </TouchableOpacity>
 
-                        <View style={[styles.inputWrapper, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                            <TextInput
+                            <View style={[styles.inputWrapper, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                                <TextInput
+                                    style={[
+                                        styles.input,
+                                        { color: colors.text },
+                                    ]}
+                                    placeholder={isOneTimeMode ? "One-time message..." : "Type a message..."}
+                                    placeholderTextColor={colors.textSecondary}
+                                    value={inputText}
+                                    onChangeText={handleTyping}
+                                    multiline
+                                    maxLength={1000}
+                                />
+                                <TouchableOpacity style={styles.smileyButton}>
+                                    <Icon name="happy-outline" size={24} color={colors.textSecondary} />
+                                </TouchableOpacity>
+                            </View>
+
+                            <TouchableOpacity
                                 style={[
-                                    styles.input,
-                                    { color: colors.text },
+                                    styles.sendButton,
+                                    { backgroundColor: inputText.trim() ? colors.primary : '#A1C4FD' }
                                 ]}
-                                placeholder="Type a message..."
-                                placeholderTextColor={colors.textSecondary}
-                                value={inputText}
-                                onChangeText={handleTyping}
-                                multiline
-                                maxLength={1000}
-                            />
-                            <TouchableOpacity style={styles.smileyButton}>
-                                <Icon name="happy-outline" size={24} color={colors.textSecondary} />
+                                onPress={handleSend}
+                                disabled={!inputText.trim()}
+                            >
+                                <Icon
+                                    name="paper-plane"
+                                    size={18}
+                                    color="#FFFFFF"
+                                    style={{ marginLeft: -2 }}
+                                />
                             </TouchableOpacity>
                         </View>
-
-                        <TouchableOpacity
-                            style={[
-                                styles.sendButton,
-                                { backgroundColor: inputText.trim() ? colors.primary : '#A1C4FD' }
-                            ]}
-                            onPress={handleSend}
-                            disabled={!inputText.trim()}
-                        >
-                            <Icon
-                                name="paper-plane"
-                                size={18}
-                                color="#FFFFFF"
-                                style={{ marginLeft: -2 }}
-                            />
-                        </TouchableOpacity>
-                    </View>
+                    </>
                 )}
             </View>
 
@@ -1307,5 +1326,28 @@ const styles = StyleSheet.create({
     blockedText: {
         fontSize: 14,
         textAlign: 'center',
+    },
+    oneTimeBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+    },
+    oneTimeBannerLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    oneTimeBannerText: {
+        fontSize: 14,
+        fontWeight: '700',
+    },
+    oneTimeCancelBtn: {
+        paddingVertical: 4,
+        paddingHorizontal: 10,
+    },
+    oneTimeCancelText: {
+        fontSize: 14,
+        fontWeight: '600',
     },
 });

@@ -18,143 +18,208 @@ export const APP_CONFIG = {
     MAX_VIDEO_SIZE: 100 * 1024 * 1024, // 100MB
 };
 
-// Theme Colors matching React Odnix Frontend
+// Theme Colors matching React Odnix Frontend (Synced from odnix-flow)
 export const THEME_COLORS = {
-    // Dark theme (Default - Teal accents)
-    dark: {
-        primary: '#26D9C6',      // hsl(175 80% 50%)
-        secondary: '#BE5FD9',    // hsl(280 70% 60%)
-        background: '#0D1117',   // hsl(220 20% 6%)
-        surface: '#161B22',      // hsl(220 18% 10%)
-        text: '#F8FAFC',         // hsl(210 40% 98%)
-        textSecondary: '#8B949E', // hsl(215 20% 55%)
-        border: '#30363D',       // hsl(220 15% 20%)
-        error: '#E55353',        // hsl(0 75% 55%)
-        success: '#3FB950',      // hsl(145 70% 45%)
-        accent: '#BE5FD9',       // hsl(280 70% 60%)
-    },
-    // Light theme
     light: {
-        primary: '#0969DA',      // hsl(200 90% 40%)
-        secondary: '#8250DF',    // hsl(280 70% 55%)
-        background: '#F9FAFB',   // hsl(220 10% 98%)
-        surface: '#FFFFFF',      // hsl(0 0% 100%)
-        text: '#1F2328',         // hsl(220 10% 12%)
-        textSecondary: '#656D76', // hsl(220 10% 36%)
-        border: '#D0D7DE',       // hsl(220 10% 86%)
-        error: '#D1242F',
-        success: '#1A7F37',
-        accent: '#8250DF',
+        primary: "#3B82F6",      // Updated to match flow
+        secondary: "#F1F5F9",
+        background: "#FAFAFA",
+        surface: "#FFFFFF",
+        text: "#0F1729",
+        textSecondary: "#64748B",
+        border: "#E2E8F0",
+        error: "#EF4444",
+        success: "#22C55E",
+        accent: "#7C3BED",
     },
-    // AMOLED theme (True black)
-    amoled: {
-        primary: '#26D9C6',
-        secondary: '#BE5FD9',
-        background: '#000000',   // True black
-        surface: '#0D0D0D',      // hsl(0 0% 5%)
-        text: '#F8FAFC',
-        textSecondary: '#8B949E',
-        border: '#262626',       // hsl(0 0% 15%)
-        error: '#E55353',
-        success: '#3FB950',
-        accent: '#BE5FD9',
+    dark: {
+        primary: "#60A5FA",
+        secondary: "#1F2937",
+        background: "#030712",
+        surface: "#111827",
+        text: "#F1F5F9",
+        textSecondary: "#94A3B8",
+        border: "#1F2937",
+        error: "#EF4444",
+        success: "#22C55E",
+        accent: "#8B5CF6",
     },
-    // Dracula theme
-    dracula: {
-        primary: '#50FA7B',      // hsl(135 94% 65%)
-        secondary: '#FF79C6',    // hsl(326 100% 74%)
-        background: '#282A36',   // hsl(231 15% 13%)
-        surface: '#343746',      // hsl(232 14% 18%)
-        text: '#F8F8F2',         // hsl(60 30% 96%)
-        textSecondary: '#6272A4', // hsl(225 14% 58%)
-        border: '#44475A',
-        error: '#FF5555',
-        success: '#50FA7B',
-        accent: '#FF79C6',
+    'tokyo-night': {
+        primary: "#30BAE8",
+        secondary: "#7953C6",
+        background: "#11131D",
+        surface: "#1B1D28",
+        text: "#E7E9EF",
+        textSecondary: "#A3ACB9",
+        border: "#272935",
+        error: "#F7768E",
+        success: "#9ECE6A",
+        accent: "#E05281",
     },
-    // Nord theme
     nord: {
-        primary: '#88C0D0',      // hsl(193 43% 67%)
-        secondary: '#B48EAD',    // hsl(311 20% 63%)
-        background: '#2E3440',   // hsl(220 16% 16%)
-        surface: '#3B4252',      // hsl(220 16% 20%)
-        text: '#ECEFF4',         // hsl(218 27% 88%)
-        textSecondary: '#81A1C1', // hsl(219 14% 58%)
-        border: '#4C566A',
-        error: '#BF616A',
-        success: '#A3BE8C',
-        accent: '#B48EAD',
+        primary: "#87BFCF",
+        secondary: "#81A1C1",
+        background: "#22272F",
+        surface: "#2D3440",
+        text: "#D8DEE9",
+        textSecondary: "#81A1C1",
+        border: "#2F3541",
+        error: "#BF616A",
+        success: "#A3BE8C",
+        accent: "#B48EAD",
     },
-    // Cyberpunk theme
-    cyberpunk: {
-        primary: '#FFFF00',      // hsl(55 100% 50%)
-        secondary: '#FF1493',    // hsl(320 100% 60%)
-        background: '#0D0221',   // hsl(270 50% 5%)
-        surface: '#190F33',      // hsl(270 45% 10%)
-        text: '#F7F700',         // hsl(60 100% 95%)
-        textSecondary: '#A277D9', // hsl(270 20% 55%)
-        border: '#3F2A5C',
-        error: '#FF1493',
-        success: '#00FF41',
-        accent: '#FF1493',
+    mint: {
+        primary: "#27B07D",
+        secondary: "#E7EFEB",
+        background: "#F6F9F7",
+        surface: "#FFFFFF",
+        text: "#0F241A",
+        textSecondary: "#4D635D",
+        border: "#DCE5E0",
+        error: "#EF4444",
+        success: "#22C55E",
+        accent: "#D7428C",
     },
-    // Synthwave theme
-    synthwave: {
-        primary: '#FF3864',      // hsl(320 100% 65%)
-        secondary: '#00F0FF',    // hsl(180 100% 60%)
-        background: '#1A0A2E',   // hsl(260 50% 8%)
-        surface: '#231247',      // hsl(260 45% 12%)
-        text: '#F5F0F7',         // hsl(300 20% 95%)
-        textSecondary: '#A277D9', // hsl(260 20% 55%)
-        border: '#3F2A5C',
-        error: '#FF3864',
-        success: '#00FF41',
-        accent: '#00F0FF',
+    coral: {
+        primary: "#EF6639",
+        secondary: "#CC8033",
+        background: "#170F0C",
+        surface: "#251B18",
+        text: "#EFE9E7",
+        textSecondary: "#A39794",
+        border: "#302521",
+        error: "#EF4444",
+        success: "#22C55E",
+        accent: "#33A6CC",
+    },
+    slate: {
+        primary: "#4D82CB",
+        secondary: "#2A3646",
+        background: "#161B22",
+        surface: "#1B2027",
+        text: "#DCE0E5",
+        textSecondary: "#8E949E",
+        border: "#272D35",
+        error: "#EF4444",
+        success: "#22C55E",
+        accent: "#DDB43C",
+    },
+    sky: {
+        primary: "#189BDC",
+        secondary: "#E0E7EB",
+        background: "#F5F8F9",
+        surface: "#FFFFFF",
+        text: "#121A21",
+        textSecondary: "#616A73",
+        border: "#D9E0E3",
+        error: "#EF4444",
+        success: "#22C55E",
+        accent: "#D14775",
+    },
+    lavender: {
+        primary: "#A670DB",
+        secondary: "#B464B4",
+        background: "#18141F",
+        surface: "#1D1924",
+        text: "#E4E2E9",
+        textSecondary: "#9E9AA3",
+        border: "#312C3A",
+        error: "#EF4444",
+        success: "#22C55E",
+        accent: "#E0BD52",
+    },
+    mocha: {
+        primary: "#CB8C4D",
+        secondary: "#8A5A42",
+        background: "#171411",
+        surface: "#1D1A16",
+        text: "#E7E1DA",
+        textSecondary: "#A39E98",
+        border: "#322E29",
+        error: "#EF4444",
+        success: "#22C55E",
+        accent: "#409FBF",
+    },
+    amoled: {
+        primary: "#3B82F6",
+        secondary: "#1F2937",
+        background: "#000000",
+        surface: "#0D0D0D",
+        text: "#FFFFFF",
+        textSecondary: "#94A3B8",
+        border: "#262626",
+        error: "#EF4444",
+        success: "#22C55E",
+        accent: "#8B5CF6",
     },
 };
 
 // Theme metadata for UI display
 export const THEME_INFO: Record<keyof typeof THEME_COLORS, { name: string; description: string; icon: string; isDark: boolean }> = {
-    dark: {
-        name: 'Dark',
-        description: 'Modern dark with teal accents',
-        icon: '🌙',
-        isDark: true,
-    },
     light: {
         name: 'Light',
         description: 'Clean and bright interface',
         icon: '☀️',
         isDark: false,
     },
-    amoled: {
-        name: 'AMOLED',
-        description: 'True black for OLED displays',
-        icon: '⚫',
+    dark: {
+        name: 'Dark',
+        description: 'Classic dark mode experience',
+        icon: '🌙',
         isDark: true,
     },
-    dracula: {
-        name: 'Dracula',
-        description: 'Purple dark with neon accents',
-        icon: '🧛',
+    'tokyo-night': {
+        name: 'Tokyo Night',
+        description: 'Vibrant neon city vibes',
+        icon: '🌃',
         isDark: true,
     },
     nord: {
         name: 'Nord',
-        description: 'Cool arctic blue palette',
+        description: 'Arctic blue professional look',
         icon: '❄️',
         isDark: true,
     },
-    cyberpunk: {
-        name: 'Cyberpunk',
-        description: 'Neon yellow and pink future',
-        icon: '🤖',
+    mint: {
+        name: 'Mint',
+        description: 'Fresh and herbal aesthetic',
+        icon: '🌿',
+        isDark: false,
+    },
+    coral: {
+        name: 'Coral',
+        description: 'Warm ocean sunset tones',
+        icon: '🪸',
         isDark: true,
     },
-    synthwave: {
-        name: 'Synthwave',
-        description: 'Retro 80s neon vibes',
-        icon: '🌆',
+    slate: {
+        name: 'Slate',
+        description: 'Sleek industrial gray palette',
+        icon: '🪨',
+        isDark: true,
+    },
+    sky: {
+        name: 'Sky',
+        description: 'Airy and light blue theme',
+        icon: '🌤️',
+        isDark: false,
+    },
+    lavender: {
+        name: 'Lavender',
+        description: 'Soft purple and dreamlike',
+        icon: '💜',
+        isDark: true,
+    },
+    mocha: {
+        name: 'Mocha',
+        description: 'Warm coffee and earth tones',
+        icon: '☕',
+        isDark: true,
+    },
+    amoled: {
+        name: 'AMOLED',
+        description: 'Deep black for OLED priority',
+        icon: '⚫',
         isDark: true,
     },
 };

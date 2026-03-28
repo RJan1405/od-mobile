@@ -455,6 +455,15 @@ class ApiService {
         }
     }
 
+    async deleteScribe(scribeId: number): Promise<ApiResponse> {
+        try {
+            const response = await this.api.post('/api/delete-post/', { scribe_id: scribeId });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
     async toggleLike(scribeId: number): Promise<ApiResponse> {
         try {
             const response = await this.api.post('/api/toggle-like/', { scribe_id: scribeId });
@@ -550,6 +559,15 @@ class ApiService {
                     'Content-Type': 'multipart/form-data',
                 },
             });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async deleteOmzo(omzoId: number): Promise<ApiResponse> {
+        try {
+            const response = await this.api.post('/api/omzo/delete/', { omzo_id: omzoId });
             return response.data;
         } catch (error) {
             return this.handleError(error);

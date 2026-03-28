@@ -25,6 +25,8 @@ import api from '@/services/api';
 import type { User, Scribe, Omzo } from '@/types';
 import ScribeCard from '@/components/ScribeCard';
 import OmzoCard from '@/components/OmzoCard';
+import ScribeCommentsSheet from '@/components/ScribeCommentsSheet';
+import OmzoCommentsSheet from '@/components/OmzoCommentsSheet';
 
 // Format counts like web version (1K, 1M)
 const formatCount = (count: number): string => {
@@ -48,6 +50,13 @@ export default function ProfileScreen() {
     const [isLoading, setIsLoading] = useState(true);
     const [isLoadingSaved, setIsLoadingSaved] = useState(false);
     const [activeTab, setActiveTab] = useState<'scribes' | 'reposts' | 'omzos' | 'saved'>('scribes');
+    
+    // Comment sheet states
+    const [isScribeCommentsVisible, setIsScribeCommentsVisible] = useState(false);
+    const [isOmzoCommentsVisible, setIsOmzoCommentsVisible] = useState(false);
+    const [commentScribeId, setCommentScribeId] = useState<number | null>(null);
+    const [commentOmzoId, setCommentOmzoId] = useState<number | null>(null);
+    const [commentCountForSheet, setCommentCountForSheet] = useState(0);
     // Global stores — shared across all screens/components
     const { followStates, setFollowState, batchSetFollowStates, getRequestStatus } = useFollowStore();
     const { interactions, setInteraction } = useInteractionStore();
@@ -68,8 +77,16 @@ export default function ProfileScreen() {
             loadProfile();
         });
 
+        const scribeDeletedListener = DeviceEventEmitter.addListener('SCRIBE_DELETED', ({ scribeId }) => {
+            console.log('🗑️ ProfileScreen received SCRIBE_DELETED event. ID:', scribeId);
+            setScribes(prev => prev.filter(s => s.id !== scribeId));
+            setReposts(prev => prev.filter(s => s.id !== scribeId));
+            setOmzos(prev => prev.filter(o => o.id !== scribeId));
+        });
+
         return () => {
             scribePostedListener.remove();
+            scribeDeletedListener.remove();
         };
     }, [username, currentUser]);
 
@@ -338,9 +355,9 @@ export default function ProfileScreen() {
                     </Text>
                 </View>
                 <View style={styles.headerRight}>
-                    <TouchableOpacity onPress={handleShare} style={styles.headerIconWrapper}>
+                    {/*<TouchableOpacity onPress={handleShare} style={styles.headerIconWrapper}>
                         <Icon name="share-outline" size={24} color={colors.text} />
-                    </TouchableOpacity>
+                    </TouchableOpacity>*/}
                     <TouchableOpacity
                         onPress={() => navigation.navigate('Settings' as never)}
                         style={styles.headerIconWrapper}
@@ -724,314 +741,50 @@ export default function ProfileScreen() {
                                                 key={`scribe-${item.id}`}
                                                 scribe={scribe}
                                                 onSaveToggle={handleScribeSaveToggle}
+                                                onCommentPress={() => {
+                                                    setCommentScribeId(scribe.id);
+                                                    setCommentCountForSheet(scribe.comment_count);
+                                                    setIsScribeCommentsVisible(true);
+                                                }}
                                             />
                                         );
                                     } else if (item.type === 'omzo') {
-                                        // Inline component for saved omzo with local unsave interaction
-                                        const SavedOmzoCard = () => {
-                                            const key = `omzo_${item.id}`;
-                                            const currentInteraction = interactions[key] || {
-                                                is_liked: item.is_liked || false,
-                                                is_disliked: item.is_disliked || false,
-                                                is_reposted: item.is_reposted || false,
-                                                is_saved: item.is_saved || false,
-                                                like_count: item.likes || 0,
-                                                dislike_count: item.dislikes || 0,
-                                                repost_count: item.reposts || 0,
-                                            };
-
-                                            const handleUnsave = async () => {
-                                                const prevInteraction = { ...currentInteraction };
-                                                setInteraction('omzo', item.id, { is_saved: false }); // Optimistic update
-                                                try {
-                                                    const response = await api.toggleSaveOmzo(item.id);
-                                                    if (response.success) {
-                                                        handleOmzoSaveToggle(item.id, response.is_saved || false);
-                                                        setInteraction('omzo', item.id, { is_saved: response.is_saved }); // Authoritative update
-                                                    } else {
-                                                        setInteraction('omzo', item.id, prevInteraction); // Revert on failure
-                                                    }
-                                                } catch (error) {
-                                                    console.error('Error unsaving omzo:', error);
-                                                    setInteraction('omzo', item.id, prevInteraction); // Revert on failure
-                                                }
-                                            };
-
-                                            const hasValidAvatar =
-                                                item.user?.profile_picture_url &&
-                                                item.user.profile_picture_url.startsWith('http');
-                                            const hasValidVideo =
-                                                item.video_url && item.video_url.startsWith('http');
-
-                                            return (
-                                                <View
-                                                    style={[
-                                                        styles.scribeCard,
-                                                        {
-                                                            backgroundColor: colors.surface,
-                                                            borderColor: colors.border,
-                                                        },
-                                                    ]}
-                                                >
-                                                    <View style={styles.scribeHeader}>
-                                                        <View style={styles.scribeUserInfo}>
-                                                            {hasValidAvatar ? (
-                                                                <Image
-                                                                    source={{ uri: item.user.profile_picture_url }}
-                                                                    style={styles.scribeAvatar}
-                                                                />
-                                                            ) : (
-                                                                <View
-                                                                    style={[
-                                                                        styles.scribeAvatar,
-                                                                        {
-                                                                            backgroundColor: colors.primary,
-                                                                            justifyContent: 'center',
-                                                                            alignItems: 'center',
-                                                                        },
-                                                                    ]}
-                                                                >
-                                                                    <Text style={styles.scribeAvatarText}>
-                                                                        {item.user?.username?.[0]?.toUpperCase() || 'O'}
-                                                                    </Text>
-                                                                </View>
-                                                            )}
-                                                            <View>
-                                                                <View style={styles.scribeNameRow}>
-                                                                    <Text style={[styles.scribeUsername, { color: colors.text }]}>
-                                                                        {item.user?.full_name || item.user?.username || 'Unknown'}
-                                                                    </Text>
-                                                                    {item.user?.is_verified && (
-                                                                        <Icon
-                                                                            name="checkmark-circle"
-                                                                            size={14}
-                                                                            color={colors.primary}
-                                                                        />
-                                                                    )}
-                                                                </View>
-                                                                <Text style={[styles.scribeTimestamp, { color: colors.textSecondary }]}>
-                                                                    @{item.user?.username || 'unknown'} · Omzo Video
-                                                                </Text>
-                                                            </View>
-                                                        </View>
-                                                        <TouchableOpacity>
-                                                            <Icon
-                                                                name="ellipsis-horizontal"
-                                                                size={20}
-                                                                color={colors.textSecondary}
-                                                            />
-                                                        </TouchableOpacity>
-                                                    </View>
-
-                                                    {item.caption && (
-                                                        <Text style={[styles.scribeContent, { color: colors.text }]}>
-                                                            {item.caption}
-                                                        </Text>
-                                                    )}
-
-                                                    {hasValidVideo && (
-                                                        <TouchableOpacity
-                                                            style={styles.scribeImageContainer}
-                                                            onPress={() => {
-                                                                const transformedOmzo = {
-                                                                    id: item.id,
-                                                                    user: item.user,
-                                                                    video_file: item.video_url,
-                                                                    video_url: item.video_url,
-                                                                    url: item.video_url,
-                                                                    caption: item.caption || '',
-                                                                    created_at: item.created_at,
-                                                                    views_count: item.views || 0,
-                                                                    like_count: item.likes || 0,
-                                                                    dislike_count: item.dislikes || 0,
-                                                                    comment_count: item.comments || 0,
-                                                                    is_liked: currentInteraction.is_liked,
-                                                                    is_disliked: currentInteraction.is_disliked,
-                                                                    is_saved: currentInteraction.is_saved,
-                                                                };
-                                                                (navigation as any).navigate('OmzoViewer', { omzo: transformedOmzo });
-                                                            }}
-                                                            activeOpacity={0.9}
-                                                        >
-                                                            <Video
-                                                                source={{ uri: item.video_url }}
-                                                                style={styles.scribeImage}
-                                                                paused={true}
-                                                                muted={true}
-                                                                resizeMode="cover"
-                                                                poster={item.video_url}
-                                                                posterResizeMode="cover"
-                                                            />
-                                                            <View style={styles.videoOverlay} pointerEvents="none">
-                                                                <View style={styles.playButton}>
-                                                                    <Icon name="play" size={32} color="#FFFFFF" />
-                                                                </View>
-                                                            </View>
-                                                        </TouchableOpacity>
-                                                    )}
-
-                                                    <View style={[styles.scribeActions, { borderTopColor: `${colors.border}80` }]}>
-                                                        {/* Like */}
-                                                        <TouchableOpacity
-                                                            style={styles.scribeActionButton}
-                                                            onPress={async () => {
-                                                                const key = `omzo_${item.id}`;
-                                                                const currentInteraction = interactions[key] || {
-                                                                    is_liked: item.is_liked || false,
-                                                                    like_count: item.likes || 0
-                                                                };
-                                                                const prevInteraction = { ...currentInteraction };
-
-                                                                const newIsLiked = !currentInteraction.is_liked;
-                                                                const newLikeCount = currentInteraction.is_liked
-                                                                    ? Math.max(0, (currentInteraction.like_count || 0) - 1)
-                                                                    : (currentInteraction.like_count || 0) + 1;
-
-                                                                setInteraction('omzo', item.id, {
-                                                                    is_liked: newIsLiked,
-                                                                    like_count: newLikeCount
-                                                                });
-
-                                                                try {
-                                                                    const resp = await api.toggleOmzoLike(item.id);
-                                                                    if (resp.success) {
-                                                                        setInteraction('omzo', item.id, {
-                                                                            is_liked: (resp as any).is_liked,
-                                                                            like_count: (resp as any).like_count
-                                                                        });
-                                                                    } else {
-                                                                        setInteraction('omzo', item.id, prevInteraction);
-                                                                    }
-                                                                } catch (err) {
-                                                                    setInteraction('omzo', item.id, prevInteraction);
-                                                                }
-                                                            }}
-                                                        >
-                                                            <Icon
-                                                                name={(interactions[`omzo_${item.id}`]?.is_liked ?? item.is_liked) ? "heart" : "heart-outline"}
-                                                                size={20}
-                                                                color={(interactions[`omzo_${item.id}`]?.is_liked ?? item.is_liked) ? "#EF4444" : colors.textSecondary}
-                                                            />
-                                                            <Text style={[styles.scribeActionText, { color: (interactions[`omzo_${item.id}`]?.is_liked ?? item.is_liked) ? "#EF4444" : colors.textSecondary }]}>
-                                                                {formatCount(interactions[`omzo_${item.id}`]?.like_count ?? (item.likes || 0))}
-                                                            </Text>
-                                                        </TouchableOpacity>
-
-                                                        {/* Dislike */}
-                                                        <TouchableOpacity
-                                                            style={styles.scribeActionButton}
-                                                            onPress={async () => {
-                                                                const key = `omzo_${item.id}`;
-                                                                const currentInteraction = interactions[key] || {
-                                                                    is_disliked: item.is_disliked || false,
-                                                                    dislike_count: item.dislikes || 0
-                                                                };
-                                                                const prevInteraction = { ...currentInteraction };
-
-                                                                const newIsDisliked = !currentInteraction.is_disliked;
-                                                                const newDislikeCount = currentInteraction.is_disliked
-                                                                    ? Math.max(0, (currentInteraction.dislike_count || 0) - 1)
-                                                                    : (currentInteraction.dislike_count || 0) + 1;
-
-                                                                setInteraction('omzo', item.id, {
-                                                                    is_disliked: newIsDisliked,
-                                                                    dislike_count: newDislikeCount
-                                                                });
-
-                                                                try {
-                                                                    const resp = await api.toggleOmzoDislike(item.id);
-                                                                    if (resp.success) {
-                                                                        setInteraction('omzo', item.id, {
-                                                                            is_disliked: (resp as any).is_disliked,
-                                                                            dislike_count: (resp as any).dislike_count
-                                                                        });
-                                                                    } else {
-                                                                        setInteraction('omzo', item.id, prevInteraction);
-                                                                    }
-                                                                } catch (err) {
-                                                                    setInteraction('omzo', item.id, prevInteraction);
-                                                                }
-                                                            }}
-                                                        >
-                                                            <Icon
-                                                                name={(interactions[`omzo_${item.id}`]?.is_disliked ?? item.is_disliked) ? "thumbs-down" : "thumbs-down-outline"}
-                                                                size={20}
-                                                                color={(interactions[`omzo_${item.id}`]?.is_disliked ?? item.is_disliked) ? "#EF4444" : colors.textSecondary}
-                                                            />
-                                                            <Text style={[styles.scribeActionText, { color: (interactions[`omzo_${item.id}`]?.is_disliked ?? item.is_disliked) ? "#EF4444" : colors.textSecondary }]}>
-                                                                {formatCount(interactions[`omzo_${item.id}`]?.dislike_count ?? (item.dislikes || 0))}
-                                                            </Text>
-                                                        </TouchableOpacity>
-
-                                                        <View style={styles.scribeActionButton}>
-                                                            <Icon name="chatbubble-outline" size={20} color={colors.textSecondary} />
-                                                            <Text style={[styles.scribeActionText, { color: colors.textSecondary }]}>
-                                                                {formatCount(item.comments || 0)}
-                                                            </Text>
-                                                        </View>
-
-                                                        <TouchableOpacity
-                                                            style={styles.scribeActionButton}
-                                                            onPress={async () => {
-                                                                const key = `omzo_${item.id}`;
-                                                                const currentInteraction = interactions[key] || {
-                                                                    is_reposted: item.is_reposted || false,
-                                                                    repost_count: item.reposts || 0
-                                                                };
-                                                                const prevInteraction = { ...currentInteraction };
-
-                                                                const newReposted = !currentInteraction.is_reposted;
-                                                                const newCount = currentInteraction.is_reposted
-                                                                    ? Math.max(0, (currentInteraction.repost_count || 0) - 1)
-                                                                    : (currentInteraction.repost_count || 0) + 1;
-
-                                                                setInteraction('omzo', item.id, {
-                                                                    is_reposted: newReposted,
-                                                                    repost_count: newCount
-                                                                });
-
-                                                                try {
-                                                                    const resp = await api.toggleRepostOmzo(item.id);
-                                                                    if (resp.success) {
-                                                                        const actual = resp.is_reposted ?? newReposted;
-                                                                        setInteraction('omzo', item.id, { is_reposted: actual });
-                                                                    } else {
-                                                                        setInteraction('omzo', item.id, prevInteraction);
-                                                                    }
-                                                                } catch (err) {
-                                                                    setInteraction('omzo', item.id, prevInteraction);
-                                                                }
-                                                            }}
-                                                        >
-                                                            <Icon
-                                                                name={(interactions[`omzo_${item.id}`]?.is_reposted ?? item.is_reposted) ? "repeat" : "repeat-outline"}
-                                                                size={20}
-                                                                color={(interactions[`omzo_${item.id}`]?.is_reposted ?? item.is_reposted) ? "#10B981" : colors.textSecondary}
-                                                            />
-                                                            <Text style={[styles.scribeActionText, { color: (interactions[`omzo_${item.id}`]?.is_reposted ?? item.is_reposted) ? "#10B981" : colors.textSecondary }]}>
-                                                                {formatCount(interactions[`omzo_${item.id}`]?.repost_count ?? (item.reposts || 0))}
-                                                            </Text>
-                                                        </TouchableOpacity>
-
-                                                        <View style={styles.scribeActionButton}>
-                                                            <Icon name="share-social-outline" size={20} color={colors.textSecondary} />
-                                                        </View>
-                                                        <View style={{ flex: 1 }} />
-                                                        <TouchableOpacity
-                                                            style={styles.scribeActionButton}
-                                                            onPress={handleUnsave}
-                                                        >
-                                                            <Icon
-                                                                name={(interactions[`omzo_${item.id}`]?.is_saved ?? item.is_saved) ? 'bookmark' : 'bookmark-outline'}
-                                                                size={20}
-                                                                color={(interactions[`omzo_${item.id}`]?.is_saved ?? item.is_saved) ? colors.primary : colors.textSecondary}
-                                                            />
-                                                        </TouchableOpacity>
-                                                    </View>
-                                                </View>
-                                            );
+                                        const scribeOmzo: Scribe = {
+                                            id: Number(item.id),
+                                            user: {
+                                                ...item.user,
+                                                id: Number(item.user.id),
+                                            } as User,
+                                            content: item.caption || '',
+                                            content_type: 'video',
+                                            media_url: item.video_url || '',
+                                            image_url: item.video_url || '',
+                                            createdAt: item.created_at,
+                                            like_count: item.likes || 0,
+                                            dislike_count: item.dislikes || 0,
+                                            comment_count: item.comments || 0,
+                                            repost_count: item.reposts || 0,
+                                            is_liked: false,
+                                            is_disliked: false,
+                                            is_saved: true,
+                                            original_type: 'omzo',
                                         };
-                                        return <SavedOmzoCard key={`omzo-${item.id}`} />;
+                                        return (
+                                            <ScribeCard
+                                                key={`omzo-${item.id}`}
+                                                scribe={scribeOmzo}
+                                                onSaveToggle={handleOmzoSaveToggle}
+                                                onCommentPress={() => {
+                                                    setCommentOmzoId(scribeOmzo.id);
+                                                    setCommentCountForSheet(scribeOmzo.comment_count);
+                                                    setIsOmzoCommentsVisible(true);
+                                                }}
+                                                onPress={() => {
+                                                    (navigation as any).navigate('OmzoViewer', { omzo: item });
+                                                }}
+                                            />
+                                       );
+
                                     }
                                     return null;
                                 })}
@@ -1049,8 +802,8 @@ export default function ProfileScreen() {
                                 const isSimpleRepost = !!(repost.original_scribe || repost.original_omzo || (repost.original_type && repost.original_data) || repost.is_repost) && !repost.content;
                                 let scribeToShow = repost;
                                 if (isSimpleRepost) {
-                                    // Prefer original_scribe, then original_data, then fallback
-                                    scribeToShow = repost.original_scribe || repost.original_data || repost;
+                                    // Prefer original_scribe, then original_omzo, then original_data, then fallback
+                                    scribeToShow = repost.original_scribe || repost.original_omzo || repost.original_data || repost;
                                     // Ensure follow state is preserved from repost wrapper if missing
                                     if (scribeToShow && repost.user && scribeToShow.user && scribeToShow.user.username === repost.user.username) {
                                         scribeToShow = {
@@ -1060,7 +813,34 @@ export default function ProfileScreen() {
                                         };
                                     }
                                 }
-                                return <ScribeCard key={repost.id} scribe={scribeToShow} />;
+                                return (
+                                    <ScribeCard 
+                                        key={repost.id} 
+                                        scribe={scribeToShow}
+                                        onCommentPress={() => {
+                                            const isOmzo = !!(repost.original_omzo || (repost.original_type === 'omzo' && repost.original_data));
+                                            if (isOmzo) {
+                                                const id = repost.original_omzo?.id || repost.original_data?.id || repost.id;
+                                                setCommentOmzoId(id);
+                                                setIsOmzoCommentsVisible(true);
+                                            } else {
+                                                const id = repost.original_scribe?.id || repost.original_data?.id || repost.id;
+                                                setCommentScribeId(id);
+                                                setIsScribeCommentsVisible(true);
+                                            }
+                                            setCommentCountForSheet(scribeToShow.comment_count || 0);
+                                        }}
+                                        onPress={() => {
+                                            const isOmzo = !!(repost.original_omzo || (repost.original_type === 'omzo' && repost.original_data));
+                                            if (isOmzo) {
+                                                const omzoData = repost.original_omzo || (repost.original_type === 'omzo' ? repost.original_data : null);
+                                                if (omzoData) {
+                                                    (navigation as any).navigate('OmzoViewer', { omzo: omzoData });
+                                                }
+                                            }
+                                        }}
+                                    />
+                                );
                             })
                         ) : (
                             <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
@@ -1072,6 +852,30 @@ export default function ProfileScreen() {
                     )}
                 </View>
             </ScrollView>
+            
+            {/* Comment Sheets */}
+            {commentScribeId && (
+                <ScribeCommentsSheet
+                    isVisible={isScribeCommentsVisible}
+                    onClose={() => {
+                        setIsScribeCommentsVisible(false);
+                        setCommentScribeId(null);
+                    }}
+                    scribeId={commentScribeId}
+                    initialCommentCount={commentCountForSheet}
+                />
+            )}
+            {commentOmzoId && (
+                <OmzoCommentsSheet
+                    isVisible={isOmzoCommentsVisible}
+                    onClose={() => {
+                        setIsOmzoCommentsVisible(false);
+                        setCommentOmzoId(null);
+                    }}
+                    omzoId={commentOmzoId}
+                    initialCommentCount={commentCountForSheet}
+                />
+            )}
         </SafeAreaView>
     );
 }

@@ -7,6 +7,7 @@ import {
     Dimensions,
     ActivityIndicator,
     TouchableOpacity,
+    DeviceEventEmitter,
 } from 'react-native';
 import { useIsFocused, useFocusEffect } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -35,6 +36,14 @@ export default function OmzoScreen() {
             hasLoadedRef.current = true;
             loadOmzos();
         }
+    }, []);
+
+    // Suddenly remove deleted omzos from list
+    useEffect(() => {
+        const subscription = DeviceEventEmitter.addListener('SCRIBE_DELETED', ({ scribeId }) => {
+            setOmzos(prev => prev.filter(o => o.id !== scribeId));
+        });
+        return () => subscription.remove();
     }, []);
 
     // Refresh omzos when screen comes into focus (for cross-screen sync)

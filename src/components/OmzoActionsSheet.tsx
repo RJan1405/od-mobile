@@ -6,6 +6,7 @@ import {
     TouchableOpacity,
     Alert,
     Share,
+    DeviceEventEmitter,
 } from 'react-native';
 import Modal from 'react-native-modal';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -21,6 +22,8 @@ interface OmzoActionsSheetProps {
     onToggleSave: () => void;
     isReposted?: boolean;
     onToggleRepost?: () => void;
+    isOwnOmzo: boolean;
+    onDelete?: (omzoId: number) => void;
 }
 
 export default function OmzoActionsSheet({
@@ -31,6 +34,8 @@ export default function OmzoActionsSheet({
     onToggleSave,
     isReposted = false,
     onToggleRepost,
+    isOwnOmzo,
+    onDelete,
 }: OmzoActionsSheetProps) {
     const { colors } = useThemeStore();
     const [showReportOptions, setShowReportOptions] = useState(false);
@@ -56,6 +61,34 @@ export default function OmzoActionsSheet({
     const handleRepost = () => {
         onToggleRepost?.();
         onClose();
+    };
+
+    const handleDelete = () => {
+        Alert.alert(
+            'Delete Omzo',
+            'Are you sure you want to delete this video? This action cannot be undone.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                { 
+                    text: 'Delete', 
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            const response = await api.deleteOmzo(omzo.id);
+                            if (response.success) {
+                                onClose();
+                                onDelete?.(omzo.id);
+                                DeviceEventEmitter.emit('SCRIBE_DELETED', { scribeId: omzo.id, type: 'omzo' });
+                            } else {
+                                Alert.alert('Error', response.error || 'Failed to delete video');
+                            }
+                        } catch (err) {
+                            Alert.alert('Error', 'An error occurred while deleting');
+                        }
+                    }
+                }
+            ]
+        );
     };
 
     const handleReport = () => {
@@ -203,6 +236,18 @@ export default function OmzoActionsSheet({
                             Report
                         </Text>
                     </TouchableOpacity>
+
+                    {isOwnOmzo && (
+                        <TouchableOpacity
+                            style={[styles.optionItem, { borderBottomColor: colors.border }]}
+                            onPress={handleDelete}
+                        >
+                            <Icon name="trash-outline" size={24} color="#FF3B30" />
+                            <Text style={[styles.optionText, { color: '#FF3B30', fontWeight: 'bold' }]}>
+                                Delete Omzo
+                            </Text>
+                        </TouchableOpacity>
+                    )}
 
                     <TouchableOpacity
                         style={styles.cancelButton}

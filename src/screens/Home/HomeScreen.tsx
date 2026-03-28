@@ -180,7 +180,7 @@ export default function HomeScreen() {
             if (response.success && response.data) {
                 const val = await AsyncStorage.getItem('@notifications_last_viewed_server');
                 const viewedTime = val ? Number(val) : 0;
-                
+
                 const updated = response.data.map((n: Notification) => {
                     const notifyTime = new Date(n.created_at).getTime();
                     return {
@@ -501,7 +501,7 @@ export default function HomeScreen() {
                 ItemSeparatorComponent={() => null}
             />
 
-            <TouchableOpacity 
+            <TouchableOpacity
                 style={[styles.fab, { backgroundColor: colors.primary }]}
                 onPress={() => setCreateGroupVisible(true)}
             >
@@ -565,7 +565,7 @@ const styles = StyleSheet.create({
     headerAvatar: {
         width: 32,
         height: 32,
-        borderRadius: 16,
+        borderRadius: 8,
     },
     searchContainer: {
         paddingHorizontal: 16,
