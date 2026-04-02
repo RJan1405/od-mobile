@@ -200,9 +200,9 @@ class ApiService {
 
     async firebaseRegister(idToken: string, registrationData: any): Promise<ApiResponse<User>> {
         try {
-            const response = await this.api.post('/api/firebase-register/', { 
-                idToken, 
-                registrationData 
+            const response = await this.api.post('/api/firebase-register/', {
+                idToken,
+                registrationData
             });
             if (response.data.success && response.data.user) {
                 await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(response.data.user));
@@ -222,10 +222,10 @@ class ApiService {
 
     async verifyPhoneOtp(otp: string, userId?: number, phoneNumber?: string): Promise<ApiResponse<User>> {
         try {
-            const response = await this.api.post('/api/verify-phone-otp/', { 
-                user_id: userId, 
+            const response = await this.api.post('/api/verify-phone-otp/', {
+                user_id: userId,
                 phone_number: phoneNumber,
-                otp 
+                otp
             });
             if (response.data.success && response.data.user) {
                 await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(response.data.user));
@@ -390,18 +390,62 @@ class ApiService {
         }
     }
 
-    async deleteMessageForMe(messageId: number): Promise<ApiResponse> {
+    async deleteMessageForMe(chatId: number, messageId: number): Promise<ApiResponse> {
         try {
-            const response = await this.api.post(`/api/delete-message-for-me/${messageId}/`);
+            // Using absolute root URL to bypass /api/ prefix as web template does
+            const url = `${API_CONFIG.BASE_URL}/delete-message-for-me/${messageId}/`;
+            const response = await this.api.post(url, {}, {
+                headers: { 
+                    'X-CSRFToken': '1234567890123456789012345678901234567890123456789012345678901234', 
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+            return {
+                success: response.data.status === 'success' || response.data.success,
+                data: response.data
+            };
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async deleteMessageForEveryone(chatId: number, messageId: number): Promise<ApiResponse> {
+        try {
+            // Using absolute root URL to bypass /api/ prefix as web template does
+            const url = `${API_CONFIG.BASE_URL}/delete-message-for-everyone/${messageId}/`;
+            const response = await this.api.post(url, {}, {
+                headers: { 
+                    'X-CSRFToken': '1234567890123456789012345678901234567890123456789012345678901234', 
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+            return {
+                success: response.data.status === 'success' || response.data.success,
+                data: response.data
+            };
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async getMessageContextMenu(messageId: number): Promise<ApiResponse<{
+        options: Array<{ id: string; label: string; icon: string; action: string; divider?: boolean; destructive?: boolean }>
+    }>> {
+        try {
+            const response = await this.api.get(`/api/message/${messageId}/context-menu/`);
             return response.data;
         } catch (error) {
             return this.handleError(error);
         }
     }
 
-    async deleteMessageForEveryone(messageId: number): Promise<ApiResponse> {
+    async performMessageAction(messageId: number, action: string, data?: any): Promise<ApiResponse> {
         try {
-            const response = await this.api.post(`/api/delete-message-for-everyone/${messageId}/`);
+            const response = await this.api.post('/api/message/context-action/', {
+                message_id: messageId,
+                action: action,
+                ...data
+            });
             return response.data;
         } catch (error) {
             return this.handleError(error);
@@ -431,7 +475,16 @@ class ApiService {
     }
 
     // ==================== SCRIBES (POSTS) ====================
-    async getExploreFeed(page: number = 1): Promise<ApiResponse<PaginatedResponse<Scribe>>> {
+    async getScribeDetail(scribeId: number): Promise<ApiResponse<Scribe>> {
+        try {
+            const response = await this.api.get(`/api/scribe/${scribeId}/`);
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async getExploreFeed(page: number = 1): Promise<ApiResponse<{ results: Scribe[]; next: string; previous: string; count: number }>> {
         try {
             const response = await this.api.get('/api/explore-feed/', {
                 params: { page },
@@ -500,6 +553,18 @@ class ApiService {
         }
     }
 
+    async reportScribe(scribeId: number, reason: string): Promise<ApiResponse> {
+        try {
+            const response = await this.api.post('/api/report-post/', {
+                scribe_id: scribeId,
+                reason,
+            });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
     async toggleRepostScribe(scribeId: number): Promise<ApiResponse & { is_reposted?: boolean; action?: string }> {
         try {
             const response = await this.api.post('/api/repost/', { type: 'scribe', id: scribeId });
@@ -541,6 +606,19 @@ class ApiService {
     }
 
     // ==================== OMZO (SHORT VIDEOS) ====================
+    async getOmzoDetail(omzoId: number): Promise<ApiResponse<Omzo>> {
+        try {
+            // Correct endpoint: /api/omzo/{id}/details/
+            const response = await this.api.get(`/api/omzo/${omzoId}/details/`);
+            if (typeof response.data === 'string') {
+                return { success: false, error: 'Endpoint returned non-JSON response' };
+            }
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
     async getOmzoBatch(cursor?: string): Promise<ApiResponse<{ data: Omzo[]; next_cursor?: string; has_more?: boolean; total_available?: number; batch_size?: number }>> {
         try {
             const response = await this.api.get('/api/omzo/batch/', {

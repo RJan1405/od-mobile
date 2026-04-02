@@ -12,6 +12,9 @@ import {
     Keyboard,
     Alert,
     Modal,
+    Dimensions,
+    TouchableWithoutFeedback,
+    Clipboard,
 } from 'react-native';
 import Video from 'react-native-video';
 import { useRoute, useNavigation } from '@react-navigation/native';
@@ -21,10 +24,12 @@ import DocumentPicker from 'react-native-document-picker';
 import { useThemeStore } from '@/stores/themeStore';
 import { useChatStore } from '@/stores/chatStore';
 import { useAuthStore } from '@/stores/authStore';
-import websocket from '@/services/websocket';
+import websocketService from '@/services/websocket';
 import api from '@/services/api';
 import { P2PFileTransferService, type P2PStatus } from '@/services/p2pFileTransfer';
 import type { Message } from '@/types';
+import ChatSharedCard from '@/components/ChatSharedCard';
+import MessageActionsSheet from '@/components/MessageActionsSheet';
 
 const MessageImage = ({ uri, showText, isImage }: { uri: string; showText: boolean; isImage: boolean }) => {
     const [aspectRatio, setAspectRatio] = useState<number>(1.5); // Default to a reasonable landscape ratio
@@ -48,7 +53,7 @@ const MessageImage = ({ uri, showText, isImage }: { uri: string; showText: boole
         <Image
             source={{ uri }}
             style={{
-                width: 260,
+                width: 240,
                 height: undefined,
                 aspectRatio: Math.max(0.4, Math.min(aspectRatio, 2.5)),
                 resizeMode: 'cover', // Parent handles overflow and borderRadius
@@ -57,7 +62,7 @@ const MessageImage = ({ uri, showText, isImage }: { uri: string; showText: boole
     );
 };
 
-const MessageVideo = ({ uri }: { uri: string }) => {
+const MessageVideo = ({ uri, onLongPress }: { uri: string; onLongPress?: (e: any) => void }) => {
     const [aspectRatio, setAspectRatio] = useState<number>(1.5);
     const [paused, setPaused] = useState(true);
 
@@ -65,8 +70,9 @@ const MessageVideo = ({ uri }: { uri: string }) => {
         <TouchableOpacity
             activeOpacity={0.9}
             onPress={() => setPaused(!paused)}
+            onLongPress={onLongPress}
             style={{
-                width: 260,
+                width: 240,
                 aspectRatio: Math.max(0.5, Math.min(aspectRatio, 2.0)),
                 backgroundColor: '#000',
                 justifyContent: 'center',
@@ -107,7 +113,7 @@ export default function ChatScreen() {
     const navigation = useNavigation();
     const { colors } = useThemeStore();
     const { user } = useAuthStore();
-    const { messages, loadMessages, addMessage, sendMessage, chats, updateMessage, markChatAsRead, consumeMessage, manageChatAcceptance } = useChatStore();
+    const { messages, loadMessages, addMessage, removeMessage, sendMessage, chats, updateMessage, markChatAsRead, consumeMessage, manageChatAcceptance, loadChats } = useChatStore();
     const { chatId } = route.params as { chatId: number };
     const [inputText, setInputText] = useState('');
     const [isTyping, setIsTyping] = useState(false);
@@ -122,7 +128,14 @@ export default function ChatScreen() {
         mediaUrl?: string;
     } | null>(null);
     const [isConsuming, setIsConsuming] = useState(false);
+    const [selectedMessageAction, setSelectedMessageAction] = useState<Message | null>(null);
+    const [isMessageActionsVisible, setIsMessageActionsVisible] = useState(false);
+    const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0, isOwn: false });
+    const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
+    const [isForwardModalVisible, setIsForwardModalVisible] = useState(false);
+    const [messageToForward, setMessageToForward] = useState<Message | null>(null);
     const flatListRef = useRef<FlatList>(null);
+    const inputRef = useRef<TextInput>(null);
 
     const currentChat = chats.find(c => c.id === chatId);
 
@@ -132,6 +145,12 @@ export default function ChatScreen() {
     const [p2pFileName, setP2pFileName] = useState('');
     const [incomingOffer, setIncomingOffer] = useState<{ signal: any; fileName: string; fileSize: number } | null>(null);
     const p2pRef = useRef<P2PFileTransferService | null>(null);
+
+    useEffect(() => {
+        if (isForwardModalVisible) {
+            loadChats();
+        }
+    }, [isForwardModalVisible]);
 
     useEffect(() => {
         if (Platform.OS === 'android') {
@@ -230,7 +249,7 @@ export default function ChatScreen() {
         markChatAsRead(chatId);
 
         // Connect to WebSocket for new messages and typing indicator
-        const unsubscribe = websocket.connectToChat(chatId, (data: any) => {
+        const unsubscribe = websocketService.connectToChat(chatId, (data: any) => {
             // Handle message.new and typing.update
             if (data && data.type === 'typing.update') {
                 // typing.update: { users: [id, ...] }
@@ -246,6 +265,9 @@ export default function ChatScreen() {
                 if (data.message.sender?.id !== user?.id) {
                     setTimeout(() => markChatAsRead(chatId), 1000);
                 }
+            } else if (data && data.type === 'message.delete') {
+                console.log('🗑️ Message deleted update:', data);
+                removeMessage(chatId, data.message_id);
             } else if (data && data.id) {
                 // Fallback for old message format
                 addMessage(chatId, data);
@@ -256,14 +278,14 @@ export default function ChatScreen() {
         });
 
         // Connect to read receipt updates
-        const unsubscribeReadReceipt = websocket.onReadReceipt(chatId, (data) => {
+        const unsubscribeReadReceipt = websocketService.onReadReceipt(chatId, (data) => {
             console.log('📬 Read receipt received:', data);
             // Update message read status in the UI
             updateMessage(chatId, data.message_id, { is_read: true });
         });
 
         // Connect to OTV consumption updates
-        const unsubscribeConsumed = websocket.onMessageConsumed(chatId, (data) => {
+        const unsubscribeConsumed = websocketService.onMessageConsumed(chatId, (data) => {
             console.log('🔒 Message consumed update:', data);
             updateMessage(chatId, data.message_id, { consumed_at: data.consumed_at });
         });
@@ -285,7 +307,7 @@ export default function ChatScreen() {
         const targetUser = currentChat?.participants?.find(p => p.id !== user?.id);
         if (targetUser) {
             console.log(`📤 [P2P Signal] Send: ${signal.type} to ${targetUser.id}`);
-            websocket.sendP2PSignal(chatId, signal, targetUser.id);
+            websocketService.sendP2PSignal(chatId, signal, targetUser.id);
         } else {
             console.warn('⚠️ [P2P] Cannot send signal: No target user found');
         }
@@ -293,7 +315,7 @@ export default function ChatScreen() {
 
     // Listen for incoming P2P signals via WebSocket
     useEffect(() => {
-        const unsubscribeP2P = websocket.onP2PSignal(chatId, (data) => {
+        const unsubscribeP2P = websocketService.onP2PSignal(chatId, (data) => {
             const sigType = data.signal?.type;
             console.log(`📶 [P2P Signal] Recv: ${sigType} from ${data.sender_id}`);
 
@@ -341,16 +363,25 @@ export default function ChatScreen() {
     const handleSend = async () => {
         if (!inputText.trim()) return;
         const messageText = inputText.trim();
+        const currentReplyId = replyToMessage?.id;
+
         setInputText('');
+        setReplyToMessage(null);
         setIsTyping(false);
-        websocket.sendTypingStatus(chatId, false);
+        websocketService.sendTypingStatus(chatId, false);
+
         try {
-            await sendMessage(chatId, messageText, undefined, undefined, isOneTimeMode);
+            await sendMessage(chatId, messageText, undefined, undefined, isOneTimeMode, currentReplyId);
             setIsOneTimeMode(false); // Reset OTV mode after sending
             flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
         } catch (error: any) {
             console.error('Error sending message:', error);
             setInputText(messageText); // Restore text so user doesn't lose it
+            if (currentReplyId) {
+                const chatMessages = messages.get(chatId) || [];
+                const originalMsg = chatMessages.find(m => m.id === currentReplyId);
+                if (originalMsg) setReplyToMessage(originalMsg);
+            }
             Alert.alert('Message Failed', error.message || 'Failed to send message');
         }
     };
@@ -429,12 +460,13 @@ export default function ChatScreen() {
                 const content = inputText.trim();
                 setInputText('');
                 setIsTyping(false);
-                websocket.sendTypingStatus(chatId, false);
+                websocketService.sendTypingStatus(chatId, false);
 
                 await sendMessage(chatId, content, pickedFile.uri, {
                     name: pickedFile.name || 'document',
                     type: pickedFile.type || 'application/octet-stream'
-                }, isOneTimeMode);
+                }, isOneTimeMode, replyToMessage?.id);
+                setReplyToMessage(null);
                 setIsOneTimeMode(false); // Reset OTV mode
                 flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
             }
@@ -455,10 +487,10 @@ export default function ChatScreen() {
 
         if (text.length > 0 && !isTyping) {
             setIsTyping(true);
-            websocket.sendTypingStatus(chatId, true);
+            websocketService.sendTypingStatus(chatId, true);
         } else if (text.length === 0 && isTyping) {
             setIsTyping(false);
-            websocket.sendTypingStatus(chatId, false);
+            websocketService.sendTypingStatus(chatId, false);
         }
     };
 
@@ -503,6 +535,95 @@ export default function ChatScreen() {
         }
     };
 
+    const handleMessageLongPress = (message: Message, event: any) => {
+        const { pageX, pageY } = event.nativeEvent;
+        const screenWidth = Dimensions.get('window').width;
+        const screenHeight = Dimensions.get('window').height;
+        const isOwn = message.sender?.id === user?.id;
+
+        // Simple heuristic for menu placement
+        let x = isOwn ? screenWidth - 220 : 40;
+        let y = pageY > screenHeight - 300 ? pageY - 250 : pageY + 10;
+
+        setMenuPosition({ x, y, isOwn });
+        setSelectedMessageAction(message);
+        setIsMessageActionsVisible(true);
+    };
+
+    const handleReply = (message: Message) => {
+        setReplyToMessage(message);
+        setTimeout(() => {
+            inputRef.current?.focus();
+        }, 100);
+    };
+
+    const handleForward = (message: Message) => {
+        setMessageToForward(message);
+        setIsForwardModalVisible(true);
+    };
+
+    const handleForwardToChat = async (targetChatId: number) => {
+        if (!messageToForward) return;
+        
+        try {
+            const { sendMessage } = useChatStore.getState();
+            await sendMessage(targetChatId, `[Forwarded]: ${messageToForward.content}`);
+            setIsForwardModalVisible(false);
+            Alert.alert('Success', 'Message forwarded successfully');
+        } catch (error) {
+            Alert.alert('Error', 'Failed to forward message');
+        }
+    };
+
+    const handleStar = async (message: Message, emoji?: string) => {
+        try {
+            const res = await api.performMessageAction(message.id, emoji ? 'reaction' : 'star', emoji ? { emoji } : {});
+            if (!res.success) {
+                console.error('Action failed:', res.error);
+            }
+        } catch (error) {
+            console.error('Error performing action:', error);
+        }
+    };
+
+    const handleDeleteForMe = async (message: Message) => {
+        // 1. Instantly remove from local UI for maximum responsiveness
+        const { removeMessage } = useChatStore.getState();
+        removeMessage(chatId, message.id);
+
+        // 2. Send via WebSocket to bypass CSRF and notify others immediately
+        websocketService.deleteMessage(chatId, message.id, 'me');
+
+        // 3. Fallback to HTTP for persistent DB record (try-catch to ignore 403 if WS worked)
+        try {
+            await api.deleteMessageForMe(chatId, message.id);
+        } catch (e) {
+            console.log('HTTP delete fallback failed, relying on WebSocket:', e);
+        }
+    };
+
+    const handleDeleteForEveryone = async (message: Message) => {
+        // 1. Instantly remove from local UI
+        const { removeMessage } = useChatStore.getState();
+        removeMessage(chatId, message.id);
+
+        // 2. Send via WebSocket (Bypasses CSRF and is real-time)
+        websocketService.deleteMessage(chatId, message.id, 'everyone');
+
+        // 3. Fallback to HTTP for server-side authority
+        try {
+            const res = await api.deleteMessageForEveryone(chatId, message.id);
+            if (!res.success && (res as any).status !== 'ok') {
+                // If both fail, we might need to re-add it, but usually WS is enough
+                console.log('HTTP delete for everyone failed');
+            } else {
+                loadMessages(chatId);
+            }
+        } catch (e) {
+            console.log('HTTP delete for everyone error:', e);
+        }
+    };
+
     const isOwnMessage = (msg: Message) => msg.sender?.id === user?.id;
 
     const chatMessages = messages.get(chatId) || [];
@@ -517,6 +638,32 @@ export default function ChatScreen() {
         // Legacy file detection via string, just in case
         const isLegacyFileText = item.content?.startsWith('Sent file:');
         const showText = hasTextContent && !isLegacyFileText;
+
+        const parseShareLink = (text: string) => {
+            if (!text) return null;
+
+            // Handle Omzo links: https://odnix.com/omzo/ID/
+            const omzoMatch = text.match(/odnix\.com\/omzo\/([^\/\s]+)/) || text.match(/\/omzo\/([^\/\s]+)/);
+            if (omzoMatch) {
+                const id = omzoMatch[1].replace(/\//g, '');
+                if (!isNaN(parseInt(id))) return { type: 'omzo' as const, id: parseInt(id) };
+            }
+
+            // Handle Legacy Omzo file paths: /media/omzos/Video-ID...
+            const legacyOmzoMatch = text.match(/\/media\/omzos\/Video-(\d+)/) || text.match(/Video-(\d+)/);
+            if (legacyOmzoMatch) return { type: 'omzo' as const, id: parseInt(legacyOmzoMatch[1]) };
+
+            // Handle Scribe links: https://odnix.com/scribe/ID/
+            const scribeMatch = text.match(/odnix\.com\/scribe\/([^\/\s]+)/) || text.match(/\/scribe\/([^\/\s]+)/);
+            if (scribeMatch) {
+                const id = scribeMatch[1].replace(/\//g, '');
+                if (!isNaN(parseInt(id))) return { type: 'scribe' as const, id: parseInt(id) };
+            }
+
+            return null;
+        };
+
+        const sharedLinkData = parseShareLink(item.content);
 
         if (item.one_time) {
             const isConsumed = !!item.consumed_at;
@@ -538,6 +685,7 @@ export default function ChatScreen() {
                     <TouchableOpacity
                         activeOpacity={canView ? 0.7 : 0.9}
                         onPress={() => canView && handleConsumeOneTime(item)}
+                        onLongPress={(e) => handleMessageLongPress(item, e)}
                     >
                         <View
                             style={[
@@ -618,48 +766,76 @@ export default function ChatScreen() {
                         <Text style={[styles.senderName, { color: colors.primary }]}>{senderName}</Text>
                     </TouchableOpacity>
                 )}
-                <View
-                    style={[
-                        styles.messageBubble,
-                        isOwnMessage ? styles.ownBubble : styles.otherBubble,
-                        {
-                            backgroundColor: isOwnMessage ? colors.primary : '#FFFFFF',
-                            borderColor: isOwnMessage ? colors.primary : colors.border,
-                            borderWidth: isOwnMessage ? 0 : 1,
-                            paddingHorizontal: (isImage || isVideo) ? 0 : 16,
-                            paddingVertical: (isImage || isVideo) ? 0 : 12,
-                            overflow: 'hidden',
-                        },
-                    ]}
-                >
-                    {item.media_url && (
-                        isVideo ? (
-                            <MessageVideo uri={item.media_url} />
-                        ) : !isImage ? (
-                            <TouchableOpacity activeOpacity={0.8}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isOwnMessage ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.05)', padding: 12, borderRadius: 8, marginBottom: showText ? 8 : 0, maxWidth: 220 }}>
-                                    <Icon name="document-text-outline" size={24} color={isOwnMessage ? '#FFFFFF' : colors.primary} style={{ marginRight: 8 }} />
-                                    <Text style={{ color: isOwnMessage ? '#FFFFFF' : '#000000', fontSize: 13, flexShrink: 1 }} numberOfLines={2}>
-                                        {item.media_filename || 'Attached File'}
+                <View style={{ flexDirection: isOwnMessage ? 'row-reverse' : 'row', alignItems: 'flex-start' }}>
+                    <TouchableOpacity
+                        activeOpacity={0.9}
+                        onLongPress={(e) => handleMessageLongPress(item, e)}
+                        style={{ maxWidth: '85%' }}
+                    >
+                        <View
+                            style={[
+                                styles.messageBubble,
+                                isOwnMessage ? styles.ownBubble : styles.otherBubble,
+                                {
+                                    backgroundColor: isOwnMessage ? colors.primary : '#FFFFFF',
+                                    borderColor: isOwnMessage ? colors.primary : colors.border,
+                                    borderWidth: isOwnMessage ? 0 : 1,
+                                    paddingVertical: (item.shared_scribe || item.shared_omzo || sharedLinkData) ? 0 : (isImage || isVideo) ? 0 : 12,
+                                    paddingHorizontal: (item.shared_scribe || item.shared_omzo || sharedLinkData || isImage || isVideo) ? 0 : 16,
+                                    overflow: 'hidden',
+                                },
+                            ]}
+                        >
+                            {item.reply_to && (
+                                <View style={[styles.bubbleReplyContainer, { borderLeftColor: isOwnMessage ? '#FFFFFF' : colors.primary, backgroundColor: isOwnMessage ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' }]}>
+                                    <Text style={[styles.bubbleReplySender, { color: isOwnMessage ? '#FFFFFF' : colors.primary }]} numberOfLines={1}>
+                                        {item.reply_to.sender?.full_name || item.reply_to.sender?.username || 'Unknown'}
+                                    </Text>
+                                    <Text style={[styles.bubbleReplyText, { color: isOwnMessage ? 'rgba(255,255,255,0.7)' : colors.textSecondary }]} numberOfLines={1}>
+                                        {item.reply_to.content}
                                     </Text>
                                 </View>
-                            </TouchableOpacity>
-                        ) : (
-                            <MessageImage uri={item.media_url} showText={showText} isImage={isImage} />
-                        )
-                    )}
-                    {showText && (
-                        <View style={(isImage || isVideo) ? { paddingHorizontal: 16, paddingBottom: 12, paddingTop: 8 } : null}>
-                            <Text
-                                style={[
-                                    styles.messageText,
-                                    { color: isOwnMessage ? '#FFFFFF' : '#000000' },
-                                ]}
-                            >
-                                {item.content}
-                            </Text>
+                            )}
+                            {item.media_url && (
+                                isVideo ? (
+                                    <MessageVideo uri={item.media_url} onLongPress={(e) => handleMessageLongPress(item, e)} />
+                                ) : !isImage ? (
+                                    <TouchableOpacity activeOpacity={0.8} onLongPress={(e) => handleMessageLongPress(item, e)}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isOwnMessage ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.05)', padding: 12, borderRadius: 8, marginBottom: showText ? 8 : 0, maxWidth: 220 }}>
+                                            <Icon name="document-text-outline" size={24} color={isOwnMessage ? '#FFFFFF' : colors.primary} style={{ marginRight: 8 }} />
+                                            <Text style={{ color: isOwnMessage ? '#FFFFFF' : '#000000', fontSize: 13, flexShrink: 1 }} numberOfLines={2}>
+                                                {item.media_filename || 'Attached File'}
+                                            </Text>
+                                        </View>
+                                    </TouchableOpacity>
+                                ) : (
+                                    <MessageImage uri={item.media_url} showText={showText} isImage={isImage} />
+                                )
+                            )}
+                            {(item.shared_scribe || item.shared_omzo || sharedLinkData) && (
+                                <ChatSharedCard
+                                    scribe={item.shared_scribe}
+                                    omzo={item.shared_omzo}
+                                    shareId={sharedLinkData?.id}
+                                    shareType={sharedLinkData?.type}
+                                    isOwnMessage={isOwnMessage}
+                                    onLongPress={(e) => handleMessageLongPress(item, e)}
+                                />
+                            )}
+                            {showText && !sharedLinkData && (
+                                <View style={(isImage || isVideo || item.shared_scribe || item.shared_omzo || sharedLinkData) ? { paddingHorizontal: 16, paddingBottom: 12, paddingTop: 8 } : null}>
+                                    <Text
+                                        style={[
+                                            styles.messageText,
+                                            { color: isOwnMessage ? '#FFFFFF' : '#000000' },
+                                        ]}
+                                    >
+                                        {item.content}
+                                    </Text>
+                                </View>
+                            )}
                         </View>
-                    )}
+                    </TouchableOpacity>
                 </View>
                 <View style={[styles.messageFooter, isOwnMessage ? styles.ownMessageFooter : styles.otherMessageFooter]}>
                     <Text
@@ -772,6 +948,162 @@ export default function ChatScreen() {
                 onTouchStart={() => isAttachMenuVisible && setIsAttachMenuVisible(false)}
             />
 
+            <Modal
+                visible={isMessageActionsVisible}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => setIsMessageActionsVisible(false)}
+            >
+                <TouchableWithoutFeedback onPress={() => setIsMessageActionsVisible(false)}>
+                    <View style={styles.menuOverlay}>
+                        <View
+                            style={[
+                                styles.whatsappMenu,
+                                {
+                                    top: menuPosition.y,
+                                    left: menuPosition.x,
+                                    backgroundColor: colors.surface,
+                                }
+                            ]}
+                        >
+                            <View style={styles.reactionRow}>
+                                {['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) => (
+                                    <TouchableOpacity
+                                        key={emoji}
+                                        onPress={() => {
+                                            if (selectedMessageAction) handleStar(selectedMessageAction, emoji);
+                                            setIsMessageActionsVisible(false);
+                                        }}
+                                        style={styles.reactionButton}
+                                    >
+                                        <Text style={{ fontSize: 24 }}>{emoji}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+
+                            <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+
+                            <TouchableOpacity
+                                style={styles.menuItem}
+                                onPress={() => {
+                                    if (selectedMessageAction) handleReply(selectedMessageAction);
+                                    setIsMessageActionsVisible(false);
+                                }}
+                            >
+                                <Text style={[styles.menuItemText, { color: colors.text }]}>Reply</Text>
+                                <Icon name="arrow-undo-outline" size={20} color={colors.textSecondary} />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.menuItem}
+                                onPress={() => {
+                                    if (selectedMessageAction) {
+                                        const text = selectedMessageAction.content || '';
+                                        if (text) {
+                                            Clipboard.setString(text);
+                                        }
+                                    }
+                                    setIsMessageActionsVisible(false);
+                                }}
+                            >
+                                <Text style={[styles.menuItemText, { color: colors.text }]}>Copy</Text>
+                                <Icon name="copy-outline" size={20} color={colors.textSecondary} />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.menuItem}
+                                onPress={() => {
+                                    if (selectedMessageAction) handleForward(selectedMessageAction);
+                                    setIsMessageActionsVisible(false);
+                                }}
+                            >
+                                <Text style={[styles.menuItemText, { color: colors.text }]}>Forward</Text>
+                                <Icon name="arrow-redo-outline" size={20} color={colors.textSecondary} />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.menuItem}
+                                onPress={() => {
+                                    if (selectedMessageAction) handleStar(selectedMessageAction);
+                                    setIsMessageActionsVisible(false);
+                                }}
+                            >
+                                <Text style={[styles.menuItemText, { color: colors.text }]}>Star</Text>
+                                <Icon name="star-outline" size={20} color={colors.textSecondary} />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.menuItem}
+                                onPress={() => {
+                                    if (selectedMessageAction) handleDeleteForMe(selectedMessageAction);
+                                    setIsMessageActionsVisible(false);
+                                }}
+                            >
+                                <Text style={[styles.menuItemText, { color: '#FF3B30' }]}>Delete for me</Text>
+                                <Icon name="trash-outline" size={20} color="#FF3B30" />
+                            </TouchableOpacity>
+
+                            {selectedMessageAction && user?.id && selectedMessageAction.sender?.id === user.id && (
+                                <TouchableOpacity
+                                    style={styles.menuItem}
+                                    onPress={() => {
+                                        handleDeleteForEveryone(selectedMessageAction);
+                                        setIsMessageActionsVisible(false);
+                                    }}
+                                >
+                                    <Text style={[styles.menuItemText, { color: '#FF3B30' }]}>Delete for everyone</Text>
+                                    <Icon name="trash-bin-outline" size={20} color="#FF3B30" />
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    </View>
+                </TouchableWithoutFeedback>
+            </Modal>
+
+            {/* Simple Forward Modal */}
+            <Modal
+                visible={isForwardModalVisible}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => setIsForwardModalVisible(false)}
+            >
+                <TouchableWithoutFeedback onPress={() => setIsForwardModalVisible(false)}>
+                    <View style={styles.forwardOverlay}>
+                        <TouchableWithoutFeedback>
+                            <View style={[styles.forwardSheet, { backgroundColor: colors.surface }]}>
+                                <Text style={[styles.forwardTitle, { color: colors.text }]}>Forward to...</Text>
+                                <FlatList
+                                    data={chats}
+                                    keyExtractor={(item) => item.id.toString()}
+                                    renderItem={({ item }) => (
+                                        <TouchableOpacity
+                                            style={styles.forwardItem}
+                                            onPress={() => handleForwardToChat(item.id)}
+                                        >
+                                            <Image 
+                                                source={{ uri: item.participants?.[0]?.profile_picture_url || 'https://via.placeholder.com/40' }} 
+                                                style={styles.forwardAvatar} 
+                                            />
+                                            <Text style={[styles.forwardName, { color: colors.text }]}>
+                                                {item.name || item.participants?.[0]?.full_name || 'Group Chat'}
+                                            </Text>
+                                            <Icon name="chevron-forward" size={18} color={colors.textSecondary} />
+                                        </TouchableOpacity>
+                                    )}
+                                    style={{ maxHeight: 400 }}
+                                />
+                                <TouchableOpacity 
+                                    style={[styles.forwardCancel, { borderTopColor: colors.border }]}
+                                    onPress={() => setIsForwardModalVisible(false)}
+                                >
+                                    <Text style={{ color: '#FF3B30', fontSize: 16, fontWeight: '600' }}>Cancel</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </TouchableWithoutFeedback>
+                    </View>
+                </TouchableWithoutFeedback>
+            </Modal>
+
             {/* Typing indicator */}
             {otherTyping && (
                 <View style={{ paddingHorizontal: 16, paddingVertical: 4 }}>
@@ -826,7 +1158,7 @@ export default function ChatScreen() {
                         </TouchableOpacity>
                     </View>
                 )}
-                
+
                 {currentChat?.is_message_request && (
                     <View style={[styles.acceptanceContainer, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
                         <Text style={[styles.acceptanceTitle, { color: colors.text }]}>Message Request</Text>
@@ -834,14 +1166,14 @@ export default function ChatScreen() {
                             Do you want to let {currentChat?.name || 'this user'} message you? They won't know you've seen their message until you accept.
                         </Text>
                         <View style={styles.acceptanceButtons}>
-                            <TouchableOpacity 
-                                style={[styles.acceptanceButton, { backgroundColor: colors.border }]} 
+                            <TouchableOpacity
+                                style={[styles.acceptanceButton, { backgroundColor: colors.border }]}
                                 onPress={() => manageChatAcceptance(chatId, 'block')}
                             >
                                 <Text style={[styles.acceptanceButtonText, { color: '#EF4444' }]}>Block</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity 
-                                style={[styles.acceptanceButton, { backgroundColor: colors.primary }]} 
+                            <TouchableOpacity
+                                style={[styles.acceptanceButton, { backgroundColor: colors.primary }]}
                                 onPress={() => manageChatAcceptance(chatId, 'accept')}
                             >
                                 <Text style={[styles.acceptanceButtonText, { color: '#FFFFFF' }]}>Accept</Text>
@@ -856,7 +1188,7 @@ export default function ChatScreen() {
                             {currentChat?.is_other_blocked ? "You have blocked this user" : "You cannot message this user"}
                         </Text>
                         {currentChat?.is_other_blocked && (
-                            <TouchableOpacity 
+                            <TouchableOpacity
                                 onPress={async () => {
                                     try {
                                         const otherUser = currentChat.participants.find(p => p.id !== user?.id);
@@ -886,7 +1218,7 @@ export default function ChatScreen() {
                                         <Text style={{ fontSize: 11, color: colors.textSecondary }}>Disappears after it's opened once</Text>
                                     </View>
                                 </View>
-                                <TouchableOpacity 
+                                <TouchableOpacity
                                     onPress={() => setIsOneTimeMode(false)}
                                     style={styles.oneTimeCancelBtn}
                                 >
@@ -894,7 +1226,26 @@ export default function ChatScreen() {
                                 </TouchableOpacity>
                             </View>
                         )}
-                        <View style={[styles.inputContainer, { borderTopColor: colors.border, borderTopWidth: isOneTimeMode ? 0 : 1 }]}>
+                        <View style={[styles.inputContainerWrapper, { backgroundColor: colors.surface, borderTopColor: colors.border, borderTopWidth: isOneTimeMode ? 0 : 1 }]}>
+                            {replyToMessage && (
+                                <View style={[styles.replyContainer, { backgroundColor: colors.background, borderLeftColor: colors.primary }]}>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[styles.replySenderName, { color: colors.primary }]}>
+                                            {replyToMessage.sender?.full_name || replyToMessage.sender?.username || 'Unknown'}
+                                        </Text>
+                                        <Text style={[styles.replyMessageText, { color: colors.textSecondary }]} numberOfLines={1}>
+                                            {replyToMessage.content || (replyToMessage.media_url ? 'Attachment' : '')}
+                                        </Text>
+                                    </View>
+                                    <TouchableOpacity 
+                                        onPress={() => setReplyToMessage(null)}
+                                        style={{ padding: 4 }}
+                                    >
+                                        <Icon name="close-circle" size={20} color={colors.textSecondary} />
+                                    </TouchableOpacity>
+                                </View>
+                            )}
+                            <View style={styles.inputContainer}>
                             <TouchableOpacity
                                 style={[styles.attachButton, isAttachMenuVisible && { backgroundColor: colors.background }]}
                                 onPress={() => setIsAttachMenuVisible(!isAttachMenuVisible)}
@@ -904,6 +1255,7 @@ export default function ChatScreen() {
 
                             <View style={[styles.inputWrapper, { backgroundColor: colors.background, borderColor: colors.border }]}>
                                 <TextInput
+                                    ref={inputRef}
                                     style={[
                                         styles.input,
                                         { color: colors.text },
@@ -935,6 +1287,7 @@ export default function ChatScreen() {
                                     style={{ marginLeft: -2 }}
                                 />
                             </TouchableOpacity>
+                        </View>
                         </View>
                     </>
                 )}
@@ -1096,7 +1449,6 @@ const styles = StyleSheet.create({
         paddingHorizontal: 12,
         paddingVertical: 12,
         paddingBottom: Platform.OS === 'ios' ? 24 : 12,
-        borderTopWidth: 1,
     },
     attachMenuContainer: {
         position: 'absolute',
@@ -1349,5 +1701,126 @@ const styles = StyleSheet.create({
     oneTimeCancelText: {
         fontSize: 14,
         fontWeight: '600',
+    },
+    menuOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.2)',
+    },
+    whatsappMenu: {
+        position: 'absolute',
+        width: 200,
+        borderRadius: 14,
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 10,
+        elevation: 10,
+        paddingVertical: 4,
+    },
+    reactionRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+        paddingVertical: 8,
+        paddingHorizontal: 4,
+    },
+    reactionButton: {
+        padding: 4,
+    },
+    menuDivider: {
+        height: StyleSheet.hairlineWidth,
+        marginVertical: 4,
+    },
+    menuItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+    },
+    menuItemText: {
+        fontSize: 16,
+    },
+    // Reply styles
+    replyContainer: {
+        flexDirection: 'row',
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        marginHorizontal: 12,
+        marginTop: 10,
+        borderRadius: 12,
+        borderLeftWidth: 4,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: 'rgba(0,0,0,0.05)',
+    },
+    replySenderName: {
+        fontSize: 12,
+        fontWeight: '700',
+        marginBottom: 2,
+    },
+    replyMessageText: {
+        fontSize: 13,
+    },
+    bubbleReplyContainer: {
+        padding: 8,
+        margin: 4,
+        borderRadius: 4,
+        borderLeftWidth: 3,
+        maxWidth: '100%',
+    },
+    bubbleReplySender: {
+        fontSize: 11,
+        fontWeight: '700',
+        marginBottom: 2,
+    },
+    bubbleReplyText: {
+        fontSize: 12,
+    },
+    // Forward styles
+    forwardOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    forwardSheet: {
+        width: '85%',
+        borderRadius: 20,
+        padding: 20,
+        elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
+    },
+    forwardTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        marginBottom: 15,
+        textAlign: 'center',
+    },
+    forwardItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 12,
+        borderBottomWidth: 0.5,
+        borderBottomColor: 'rgba(0,0,0,0.1)',
+    },
+    forwardAvatar: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        marginRight: 12,
+    },
+    forwardName: {
+        flex: 1,
+        fontSize: 16,
+    },
+    forwardCancel: {
+        marginTop: 15,
+        paddingTop: 15,
+        borderTopWidth: 1,
+        alignItems: 'center',
     },
 });

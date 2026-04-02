@@ -45,9 +45,23 @@ export function transformUserData(apiUser: any): any {
 export function transformFeedItem(item: any): any {
     if (!item) return item;
 
+    const rawUser = item.user || {};
+    const resolvedUsername =
+        rawUser.username ||
+        rawUser.name ||
+        rawUser.display_name ||
+        item.username ||
+        item.user_username ||
+        null;
+
     return {
         ...item,
-        user: transformUserData(item.user),
+        user: {
+            ...transformUserData(rawUser),
+            // Ensure username is always set, trying every known variant
+            username: resolvedUsername,
+            full_name: rawUser.full_name || rawUser.displayName || rawUser.display_name || resolvedUsername,
+        },
         image_url: buildFullUrl(item.mediaUrl || item.image_url),
         like_count: item.likes !== undefined ? item.likes : item.like_count,
         is_liked: item.isLiked !== undefined ? item.isLiked : item.is_liked,
@@ -74,7 +88,7 @@ export function transformOmzoData(omzo: any): any {
     return {
         id: omzo.id,
         user: transformUserData(user),
-        video_file: buildFullUrl(omzo.url || omzo.video_file || omzo.videoUrl),
+        video_file: buildFullUrl(omzo.url || omzo.video_file || omzo.video_url || omzo.videoUrl),
         caption: omzo.caption || '',
         created_at: omzo.created_at || omzo.createdAt || new Date().toISOString(),
         views_count: omzo.views !== undefined ? omzo.views : (omzo.views_count || 0),

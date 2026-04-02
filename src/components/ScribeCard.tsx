@@ -31,6 +31,9 @@ interface ScribeCardProps {
     onDelete?: (scribeId: number) => void;
 }
 
+import ScribeActionsSheet from './ScribeActionsSheet';
+import ShareSheet from './ShareSheet';
+
 // Format counts (1K, 1M)
 const formatCount = (count?: number | null): string => {
     if (count === undefined || count === null) return '0';
@@ -120,6 +123,8 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
     // Display settings
     const [activeTab, setActiveTab] = useState<'preview' | 'code'>('preview');
     const [webviewHeight, setWebviewHeight] = useState(300);
+    const [showActions, setShowActions] = useState(false);
+    const [showShareSheet, setShowShareSheet] = useState(false);
 
     // Global stores
     const { interactions, setInteraction } = useInteractionStore();
@@ -127,15 +132,19 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
     const interaction = interactions[interactionKey] || {
         is_liked: displayScribe.is_liked || false,
         like_count: displayScribe.like_count || 0,
+        is_disliked: displayScribe.is_disliked || false,
+        dislike_count: displayScribe.dislike_count || 0,
         is_saved: displayScribe.is_saved || false,
         is_reposted: displayScribe.is_reposted || isSimpleRepost,
         repost_count: displayScribe.repost_count || 0
     };
 
-    const isLiked = interaction.is_liked;
+    const isLiked = !!interaction.is_liked;
     const likeCount = interaction.like_count || 0;
-    const isSaved = interaction.is_saved;
-    const isReposted = interaction.is_reposted;
+    const isDisliked = !!interaction.is_disliked;
+    const dislikeCount = interaction.dislike_count || 0;
+    const isSaved = !!interaction.is_saved;
+    const isReposted = !!interaction.is_reposted;
     const repostCount = interaction.repost_count || 0;
 
     // Read follow state from global store — updates instantly when any screen toggles follow
@@ -166,6 +175,8 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
             setInteraction('scribe', displayScribe.id, {
                 is_liked: displayScribe.is_liked || false,
                 like_count: displayScribe.like_count || 0,
+                is_disliked: displayScribe.is_disliked || false,
+                dislike_count: displayScribe.dislike_count || 0,
                 is_saved: displayScribe.is_saved || false,
                 is_reposted: displayScribe.is_reposted || isSimpleRepost,
                 repost_count: displayScribe.repost_count || 0,
@@ -182,8 +193,54 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
         // Optimistic update
         const newIsLiked = !isLiked;
         const newLikeCount = isLiked ? Math.max(0, likeCount - 1) : likeCount + 1;
+        
+        // If we are liking, we can't be disliking
+        const newIsDisliked = newIsLiked ? false : isDisliked;
+        const newDislikeCount = (isLiked === false && isDisliked === true) ? Math.max(0, dislikeCount - 1) : dislikeCount;
 
         setInteraction('scribe', displayScribe.id, {
+            is_liked: newIsLiked,
+            like_count: newLikeCount,
+            is_disliked: newIsDisliked,
+            dislike_count: newDislikeCount
+        });
+
+        try {
+            // Use the correct API based on content type
+            const isOmzo = displayScribe.original_type === 'omzo' || !!displayScribe.original_omzo;
+            const response = isOmzo
+                ? await api.toggleOmzoLike(displayScribe.id)
+                : await api.toggleLike(displayScribe.id);
+
+            if (response.success) {
+                setInteraction('scribe', displayScribe.id, {
+                    is_liked: (response as any).is_liked,
+                    like_count: (response as any).like_count,
+                    is_disliked: (response as any).is_disliked,
+                    dislike_count: (response as any).dislike_count
+                });
+            } else {
+                setInteraction('scribe', displayScribe.id, prevInteraction);
+            }
+        } catch {
+            setInteraction('scribe', displayScribe.id, prevInteraction);
+        }
+    };
+
+    const handleDislike = async () => {
+        const prevInteraction = interaction;
+
+        // Optimistic update
+        const newIsDisliked = !isDisliked;
+        const newDislikeCount = isDisliked ? Math.max(0, dislikeCount - 1) : dislikeCount + 1;
+        
+        // If we are disliking, we can't be liking
+        const newIsLiked = newIsDisliked ? false : isLiked;
+        const newLikeCount = (isDisliked === false && isLiked === true) ? Math.max(0, likeCount - 1) : likeCount;
+
+        setInteraction('scribe', displayScribe.id, {
+            is_disliked: newIsDisliked,
+            dislike_count: newDislikeCount,
             is_liked: newIsLiked,
             like_count: newLikeCount
         });
@@ -191,9 +248,9 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
         try {
             // Use the correct API based on content type
             const isOmzo = displayScribe.original_type === 'omzo' || !!displayScribe.original_omzo;
-            const response = isOmzo 
-                ? await api.toggleOmzoLike(displayScribe.id)
-                : await api.toggleLike(displayScribe.id);
+            const response = isOmzo
+                ? await api.toggleOmzoDislike(displayScribe.id)
+                : await api.toggleDislike(displayScribe.id);
 
             if (response.success) {
                 setInteraction('scribe', displayScribe.id, {
@@ -308,49 +365,7 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
     };
 
     const handleMorePress = () => {
-        const options = [];
-        
-        if (isOwnScribe) {
-            options.push({
-                text: 'Delete Scribe',
-                style: 'destructive' as const,
-                onPress: () => {
-                    Alert.alert(
-                        'Delete Scribe',
-                        'Are you sure you want to delete this post? This action cannot be undone.',
-                        [
-                            { text: 'Cancel', style: 'cancel' },
-                            { 
-                                text: 'Delete', 
-                                style: 'destructive',
-                                onPress: async () => {
-                                    try {
-                                        const response = await api.deleteScribe(displayScribe.id);
-                                        if (response.success) {
-                                            onDelete?.(displayScribe.id);
-                                            DeviceEventEmitter.emit('SCRIBE_DELETED', { scribeId: displayScribe.id });
-                                        } else {
-                                            Alert.alert('Error', response.error || 'Failed to delete scribe');
-                                        }
-                                    } catch (err) {
-                                        Alert.alert('Error', 'An error occurred while deleting');
-                                    }
-                                }
-                            }
-                        ]
-                    );
-                }
-            });
-        } else {
-            options.push({
-                text: 'Report Scribe',
-                onPress: () => Alert.alert('Report', 'Thank you for reporting. We will review this content.')
-            });
-        }
-
-        options.push({ text: 'Cancel', style: 'cancel' as const });
-
-        Alert.alert('Options', '', options);
+        setShowActions(true);
     };
 
     const handleProfilePress = () => {
@@ -544,14 +559,14 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
                                 {displayScribe.user?.is_verified && (
                                     <Icon name="checkmark-circle" size={14} color={colors.primary} style={{ marginLeft: 1 }} />
                                 )}
-                                
+
                                 {!isOwnScribe && (
                                     <TouchableOpacity
                                         onPress={handleFollow}
                                         activeOpacity={0.7}
                                     >
                                         <Text style={[
-                                            styles.followLinkText, 
+                                            styles.followLinkText,
                                             { color: colors.primary },
                                             isFollowing && { color: colors.textSecondary }
                                         ]}>
@@ -570,8 +585,8 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
                             <Text style={[styles.handle, { color: colors.textSecondary }]}>@{displayScribe.user?.username || 'unknown'}</Text>
                         </View>
 
-                        <TouchableOpacity 
-                            style={styles.moreBtn} 
+                        <TouchableOpacity
+                            style={styles.moreBtn}
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             onPress={handleMorePress}
                         >
@@ -594,12 +609,12 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
                                 </View>
                                 <Text style={[styles.windowTitle, { color: colors.textSecondary }]}>HTML Preview</Text>
                             </View>
-                            
+
                             <View style={[
-                                styles.webviewContainer, 
-                                { 
+                                styles.webviewContainer,
+                                {
                                     height: Math.max(200, webviewHeight),
-                                    backgroundColor: '#FFFFFF', 
+                                    backgroundColor: '#FFFFFF',
                                     borderTopWidth: 1,
                                     borderTopColor: colors.border + '40'
                                 }
@@ -639,7 +654,7 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
                                 source={{ uri: videoUri }}
                                 style={[styles.originalImage, { backgroundColor: colors.background }]}
                                 paused={true}
-                                resizeMode="cover"
+                                resizeMode="contain"
                                 poster={imageUri || videoUri}
                                 posterResizeMode="cover"
                             />
@@ -661,6 +676,18 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
                     />
                     <Text style={[styles.actionCount, { color: colors.textSecondary }, isLiked && { color: '#FF3B5C' }]}>
                         {formatCount(likeCount)}
+                    </Text>
+                </TouchableOpacity>
+
+                {/* Dislike */}
+                <TouchableOpacity style={styles.actionBtn} onPress={handleDislike} activeOpacity={0.7}>
+                    <Icon
+                        name={isDisliked ? 'thumbs-down' : 'thumbs-down-outline'}
+                        size={22}
+                        color={isDisliked ? colors.primary : colors.textSecondary}
+                    />
+                    <Text style={[styles.actionCount, { color: colors.textSecondary }, isDisliked && { color: colors.primary }]}>
+                        {formatCount(dislikeCount)}
                     </Text>
                 </TouchableOpacity>
 
@@ -696,28 +723,43 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
                 </TouchableOpacity>
 
                 {/* Share / Send */}
-                <TouchableOpacity 
-                    style={styles.actionIconBtn} 
+                <TouchableOpacity
+                    style={styles.actionIconBtn}
                     activeOpacity={0.7}
-                    onPress={async () => {
-                        try {
-                            const shareUrl = `https://odnix.com/${displayScribe.original_type === 'omzo' ? 'omzo' : 'post'}/${displayScribe.id}`;
-                            const message = displayScribe.original_type === 'omzo'
-                                ? `Check out this video by @${displayScribe.user?.username} on Odnix: ${displayScribe.content || ''}\n${shareUrl}`
-                                : `Check out this post by @${displayScribe.user?.username} on Odnix: ${displayScribe.content || ''}\n${shareUrl}`;
-                            
-                            await Share.share({
-                                message,
-                                url: shareUrl,
-                            });
-                        } catch (error) {
-                            console.error('Error sharing:', error);
-                        }
-                    }}
+                    onPress={() => setShowShareSheet(true)}
                 >
                     <Icon name="paper-plane-outline" size={20} color={colors.textSecondary} />
                 </TouchableOpacity>
             </View>
+
+            <ScribeActionsSheet
+                isVisible={showActions}
+                onClose={() => setShowActions(false)}
+                scribe={displayScribe}
+                isSaved={!!isSaved}
+                onToggleSave={handleSave}
+                isReposted={!!isReposted}
+                onToggleRepost={handleRepost}
+                isOwnScribe={isOwnScribe}
+                onDelete={onDelete}
+            />
+
+            <ShareSheet
+                isVisible={showShareSheet}
+                onClose={() => setShowShareSheet(false)}
+                contentId={(displayScribe.original_type === 'omzo' || !!displayScribe.original_omzo)
+                    ? (displayScribe.original_omzo?.id || displayScribe.id)
+                    : displayScribe.id
+                }
+                contentType={(displayScribe.original_type === 'omzo' || !!displayScribe.original_omzo) ? "omzo" : "scribe"}
+                contentUrl={(displayScribe.original_type === 'omzo' || !!displayScribe.original_omzo)
+                    ? `https://odnix.com/omzo/${displayScribe.original_omzo?.id || displayScribe.id}/`
+                    : `https://odnix.com/scribe/${displayScribe.id}/`
+                }
+                onShareSuccess={() => {
+                    // Update share count locally if needed
+                }}
+            />
         </View>
     );
 }

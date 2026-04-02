@@ -21,6 +21,7 @@ import api from '@/services/api';
 import { useRepostStore } from '@/stores/repostStore';
 import OmzoCommentsSheet from '@/components/OmzoCommentsSheet';
 import OmzoActionsSheet from '@/components/OmzoActionsSheet';
+import ShareSheet from '@/components/ShareSheet';
 import { transformOmzoData } from '@/utils/api-helpers';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -53,9 +54,33 @@ export default function OmzoViewerScreen() {
     const [isLoading, setIsLoading] = useState(true);
     const [showComments, setShowComments] = useState(false);
     const [showActions, setShowActions] = useState(false);
-    const [shareCount] = useState(45); // Placeholder for share count
+    const [shareCount, setShareCount] = useState(0); 
+    const [showShareSheet, setShowShareSheet] = useState(false);
     const [paused, setPaused] = useState(false);
     const [isMuted, setIsMuted] = useState(globalMuteState);
+
+    // Initial load by ID if needed (for chat navigation)
+    useEffect(() => {
+        const fetchById = async () => {
+            const initialId = (route.params as any)?.initialOmzoId || (route.params as any)?.omzoId;
+            if (!omzo && initialId) {
+                setIsLoading(true);
+                try {
+                    const response = await api.getOmzoDetail(initialId);
+                    if (response.success && response.data) {
+                        setOmzo(transformOmzoData(response.data));
+                    }
+                } catch (error) {
+                    console.error('Error loading omzo by id:', error);
+                } finally {
+                    setIsLoading(false);
+                }
+            } else if (omzo) {
+                setIsLoading(false);
+            }
+        };
+        fetchById();
+    }, [(route.params as any)?.initialOmzoId, (route.params as any)?.omzoId]);
 
     // Global stores
     const { interactions, setInteraction } = useInteractionStore();
@@ -63,6 +88,8 @@ export default function OmzoViewerScreen() {
     const interaction = interactions[interactionKey] || {
         is_liked: omzo?.is_liked || false,
         like_count: omzo?.like_count || 0,
+        is_disliked: omzo?.is_disliked || false,
+        dislike_count: omzo?.dislike_count || 0,
         is_saved: omzo?.is_saved || false,
         is_reposted: omzo?.is_reposted || false,
         repost_count: omzo?.reposts || 0
@@ -70,6 +97,8 @@ export default function OmzoViewerScreen() {
 
     const isLiked = !!interaction.is_liked;
     const likeCount = interaction.like_count || 0;
+    const isDisliked = !!interaction.is_disliked;
+    const dislikeCount = interaction.dislike_count || 0;
     const isSaved = !!interaction.is_saved;
     const isReposted = !!interaction.is_reposted;
     const repostCount = interaction.repost_count || 0;
@@ -80,6 +109,8 @@ export default function OmzoViewerScreen() {
             setInteraction('omzo', omzo.id, {
                 is_liked: omzo.is_liked || false,
                 like_count: omzo.like_count || 0,
+                is_disliked: omzo.is_disliked || false,
+                dislike_count: omzo.dislike_count || 0,
                 is_saved: omzo.is_saved || false,
                 is_reposted: omzo.is_reposted || false,
                 repost_count: omzo.reposts || 0
@@ -133,9 +164,15 @@ export default function OmzoViewerScreen() {
         const newIsLiked = !isLiked;
         const newLikeCount = isLiked ? Math.max(0, likeCount - 1) : likeCount + 1;
         
+        // If we are liking, we can't be disliking
+        const newIsDisliked = newIsLiked ? false : isDisliked;
+        const newDislikeCount = (isLiked === false && isDisliked === true) ? Math.max(0, dislikeCount - 1) : dislikeCount;
+
         setInteraction('omzo', omzo.id, {
             is_liked: newIsLiked,
-            like_count: newLikeCount
+            like_count: newLikeCount,
+            is_disliked: newIsDisliked,
+            dislike_count: newDislikeCount
         });
 
         try {
@@ -152,6 +189,43 @@ export default function OmzoViewerScreen() {
             }
         } catch (error) {
             console.error('Error toggling like:', error);
+            setInteraction('omzo', omzo.id, prevInteraction);
+        }
+    };
+
+    const handleDislike = async () => {
+        if (!omzo) return;
+        const prevInteraction = interaction;
+
+        // Optimistic update
+        const newIsDisliked = !isDisliked;
+        const newDislikeCount = isDisliked ? Math.max(0, dislikeCount - 1) : dislikeCount + 1;
+        
+        // If we are disliking, we can't be liking
+        const newIsLiked = newIsDisliked ? false : isLiked;
+        const newLikeCount = (isDisliked === false && isLiked === true) ? Math.max(0, likeCount - 1) : likeCount;
+
+        setInteraction('omzo', omzo.id, {
+            is_disliked: newIsDisliked,
+            dislike_count: newDislikeCount,
+            is_liked: newIsLiked,
+            like_count: newLikeCount
+        });
+
+        try {
+            const response = await api.toggleOmzoDislike(omzo.id);
+            if (response.success) {
+                setInteraction('omzo', omzo.id, {
+                    is_liked: (response as any).is_liked,
+                    like_count: (response as any).like_count,
+                    is_disliked: (response as any).is_disliked,
+                    dislike_count: (response as any).dislike_count
+                });
+            } else {
+                setInteraction('omzo', omzo.id, prevInteraction);
+            }
+        } catch (error) {
+            console.error('Error toggling dislike:', error);
             setInteraction('omzo', omzo.id, prevInteraction);
         }
     };
@@ -264,8 +338,13 @@ export default function OmzoViewerScreen() {
 
     const handleShare = () => {
         setPaused(true);
-        console.log('Share omzo:', omzo.id);
-        setTimeout(() => setPaused(false), 100);
+        setShowShareSheet(true);
+        console.log('Opening share sheet for omzo:', omzo?.id);
+    };
+
+    const handleShareSuccess = () => {
+        setShareCount(prev => prev + 1);
+        setTimeout(() => setPaused(false), 500);
     };
 
     const handleProfilePress = () => {
@@ -323,7 +402,7 @@ export default function OmzoViewerScreen() {
                     style={styles.video}
                     paused={paused}
                     repeat={true}
-                    resizeMode="cover"
+                    resizeMode="contain"
                     muted={isMuted}
                     ignoreSilentSwitch="ignore"
                     mixWithOthers="mix"
@@ -444,6 +523,18 @@ export default function OmzoViewerScreen() {
                     <Text style={styles.actionCount}>{formatCount(likeCount)}</Text>
                 </TouchableOpacity>
 
+                {/* Dislike */}
+                <TouchableOpacity style={styles.actionButton} onPress={handleDislike} activeOpacity={0.7}>
+                    <View style={styles.actionIconContainer}>
+                        <Icon
+                            name={isDisliked ? 'thumbs-down' : 'thumbs-down-outline'}
+                            size={26}
+                            color={isDisliked ? '#6366F1' : '#FFFFFF'}
+                        />
+                    </View>
+                    <Text style={styles.actionCount}>{formatCount(dislikeCount)}</Text>
+                </TouchableOpacity>
+
                 {/* Comment */}
                 <TouchableOpacity style={styles.actionButton} onPress={handleComments} activeOpacity={0.7}>
                     <View style={styles.actionIconContainer}>
@@ -485,7 +576,6 @@ export default function OmzoViewerScreen() {
                     <View style={styles.actionIconContainer}>
                         <Icon name="paper-plane-outline" size={24} color="#FFFFFF" style={{ marginLeft: -2, marginTop: 2 }} />
                     </View>
-                    <Text style={styles.actionCount}>{formatCount(shareCount)}</Text>
                 </TouchableOpacity>
             </View>
 
@@ -502,11 +592,31 @@ export default function OmzoViewerScreen() {
             <OmzoActionsSheet
                 isVisible={showActions}
                 onClose={handleCloseActions}
-                omzo={omzo}
+                omzo={{
+                    ...omzo!,
+                    is_liked: isLiked,
+                    like_count: likeCount,
+                    is_saved: isSaved,
+                    is_reposted: isReposted,
+                    reposts: repostCount
+                }}
                 isSaved={isSaved}
                 onToggleSave={handleToggleSave}
                 isReposted={isReposted}
                 onToggleRepost={handleRepost}
+                isOwnOmzo={omzo?.user?.username === currentUser?.username}
+            />
+
+            <ShareSheet
+                isVisible={showShareSheet}
+                onClose={() => {
+                    setShowShareSheet(false);
+                    setPaused(false);
+                }}
+                contentId={omzo?.id || 0}
+                contentType="omzo"
+                contentUrl={`https://odnix.com/omzo/${omzo?.id}/`}
+                onShareSuccess={handleShareSuccess}
             />
         </View>
     );
@@ -514,8 +624,7 @@ export default function OmzoViewerScreen() {
 
 const styles = StyleSheet.create({
     container: {
-        width: SCREEN_WIDTH,
-        height: SCREEN_HEIGHT,
+        flex: 1,
         backgroundColor: '#000000',
         position: 'relative',
     },

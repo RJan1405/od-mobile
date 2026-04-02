@@ -152,9 +152,25 @@ class WebSocketService {
     sendChatMessage(chatId: number, message: any): void {
         const socket = this.chatSockets.get(chatId);
         if (socket && socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({
+            const payload: any = {
                 type: 'message.send',
                 ...message,
+            };
+            // Ensure reply_to is sent for backend compatibility
+            if (message.reply_to_id && !payload.reply_to) {
+                payload.reply_to = message.reply_to_id;
+            }
+            socket.send(JSON.stringify(payload));
+        }
+    }
+
+    deleteMessage(chatId: number, messageId: number, deleteType: 'me' | 'everyone'): void {
+        const socket = this.chatSockets.get(chatId);
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+                type: 'message.delete',
+                message_id: messageId,
+                delete_type: deleteType
             }));
         }
     }

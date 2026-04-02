@@ -18,7 +18,7 @@ interface ChatState {
     addMessage: (chatId: number, message: Message) => void;
     updateMessage: (chatId: number, messageId: number, updates: Partial<Message>) => void;
     removeMessage: (chatId: number, messageId: number) => void;
-    sendMessage: (chatId: number, content: string, mediaUri?: string, mediaParams?: { name: string, type: string }, oneTime?: boolean) => Promise<void>;
+    sendMessage: (chatId: number, content: string, mediaUri?: string, mediaParams?: { name: string, type: string }, oneTime?: boolean, replyToId?: number) => Promise<void>;
     consumeMessage: (chatId: number, messageId: number) => Promise<any>;
     clearMessages: (chatId: number) => void;
     markMessagesAsRead: (chatId: number, messageIds?: number[]) => Promise<void>;
@@ -129,18 +129,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
             // Update the chat in our chats list with acceptance and block status
             set(state => ({
-                chats: state.chats.map(c => 
-                    c.id === chatId ? { 
-                        ...c, 
-                        is_accepted: isAccepted, 
+                chats: state.chats.map(c =>
+                    c.id === chatId ? {
+                        ...c,
+                        is_accepted: isAccepted,
                         is_message_request: isMessageRequest,
                         is_other_blocked: (response as any).is_other_blocked,
                         am_i_blocked: (response as any).am_i_blocked
                     } : c
                 ),
-                currentChat: state.currentChat?.id === chatId ? { 
-                    ...state.currentChat, 
-                    is_accepted: isAccepted, 
+                currentChat: state.currentChat?.id === chatId ? {
+                    ...state.currentChat,
+                    is_accepted: isAccepted,
                     is_message_request: isMessageRequest,
                     is_other_blocked: (response as any).is_other_blocked,
                     am_i_blocked: (response as any).am_i_blocked
@@ -191,10 +191,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
             });
 
             console.log('📝 Transformed to', transformedMessages.length, 'messages');
-            
+
             const messages = get().messages;
             messages.set(chatId, transformedMessages);
-            
+
             set({ messages: new Map(messages) });
         } catch (error) {
             console.error('❌ Error loading messages:', error);
@@ -285,14 +285,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set({ messages: new Map(messages) });
     },
 
-    sendMessage: async (chatId: number, content: string, mediaUri?: string, mediaParams?: { name: string, type: string }, oneTime: boolean = false) => {
+    sendMessage: async (chatId: number, content: string, mediaUri?: string, mediaParams?: { name: string, type: string }, oneTime: boolean = false, replyToId?: number) => {
         try {
-            console.log('📤 Sending message:', { chatId, content, mediaUri, oneTime });
+            console.log('📤 Sending message:', { chatId, content, mediaUri, oneTime, replyToId });
             const formData = new FormData();
             formData.append('chat_id', chatId.toString());
             formData.append('content', content);
             if (oneTime) {
                 formData.append('one_time', 'true');
+            }
+            if (replyToId) {
+                console.log('🔗 Attaching reply to ID:', replyToId);
+                formData.append('reply_to_id', replyToId.toString());
+                formData.append('reply_to', replyToId.toString());
             }
 
             if (mediaUri) {

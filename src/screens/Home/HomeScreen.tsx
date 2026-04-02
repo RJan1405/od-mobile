@@ -10,6 +10,7 @@ import {
     ScrollView,
     TextInput,
     Platform,
+    Alert,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -45,6 +46,7 @@ export default function HomeScreen() {
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [storiesData, setStoriesData] = useState<UserWithStories[]>([]);
     const [createGroupVisible, setCreateGroupVisible] = useState(false);
+    const [privateChatIds, setPrivateChatIds] = useState<number[]>([]);
 
     // Refresh data when screen is focused
     useFocusEffect(
@@ -53,6 +55,13 @@ export default function HomeScreen() {
             loadChats();
             fetchStories();
             fetchNotifications();
+            AsyncStorage.getItem('@private_chat_ids').then(val => {
+                if (val) {
+                    try {
+                        setPrivateChatIds(JSON.parse(val));
+                    } catch (e) { }
+                }
+            });
         }, [])
     );
 
@@ -261,20 +270,52 @@ export default function HomeScreen() {
     };
 
     const filteredChats = chats.filter(chat => {
-        if (activeTab === 'private') return chat.chat_type === 'private';
         if (activeTab === 'groups') return chat.chat_type === 'group';
-        return true; // public shows all
+
+        const isPrivateList = privateChatIds.includes(chat.id);
+
+        if (activeTab === 'private') return chat.chat_type === 'private' && isPrivateList;
+        if (activeTab === 'public') return chat.chat_type === 'private' && !isPrivateList;
+
+        return true;
     });
+
+    const handleLongPressChat = (chat: Chat) => {
+        if (chat.chat_type === 'group') return;
+
+        const isCurrentlyPrivate = privateChatIds.includes(chat.id);
+        const title = isCurrentlyPrivate ? "Move to Public" : "Move to Private";
+        const message = isCurrentlyPrivate
+            ? "Do you want to move this chat to the Public tab?"
+            : "Do you want to move this chat to your Private tab?";
+
+        Alert.alert(title, message, [
+            { text: "Cancel", style: "cancel" },
+            {
+                text: "Move",
+                onPress: async () => {
+                    let updated: number[];
+                    if (isCurrentlyPrivate) {
+                        updated = privateChatIds.filter(id => id !== chat.id);
+                    } else {
+                        updated = [...privateChatIds, chat.id];
+                    }
+                    setPrivateChatIds(updated);
+                    await AsyncStorage.setItem('@private_chat_ids', JSON.stringify(updated));
+                }
+            }
+        ]);
+    };
 
     console.log(`💬 Total chats: ${chats.length}, Filtered (${activeTab}): ${filteredChats.length}`);
 
     const handleStoryPress = (userStories: UserWithStories) => {
         if (userStories.is_own && userStories.stories.length === 0) {
             // Navigate to create story
-            navigation.navigate('CreateStory' as any);
+            navigation.navigate('CreateStory' as never);
         } else {
             // Navigate to story viewer
-            navigation.navigate('StoryView' as any, { userId: userStories.user.id });
+            navigation.navigate('StoryView' as never, { userId: userStories.user.id } as never);
         }
     };
 
@@ -294,7 +335,7 @@ export default function HomeScreen() {
                     styles.storyRing,
                     hasUnviewed && { borderColor: colors.primary, borderWidth: 3 },
                     !hasUnviewed && { borderColor: colors.border },
-                    item.is_own && item.stories.length === 0 && { borderColor: colors.primary, borderWidth: 2 }
+                    item.is_own && { borderColor: colors.primary, borderWidth: 2 }
                 ]}>
                     {hasValidAvatar ? (
                         <Image
@@ -308,10 +349,17 @@ export default function HomeScreen() {
                             </Text>
                         </View>
                     )}
-                    {item.is_own && item.stories.length === 0 && (
-                        <View style={[styles.addStory, { backgroundColor: colors.primary, borderColor: colors.surface }]}>
+                    {item.is_own && (
+                        <TouchableOpacity
+                            style={[styles.addStory, { backgroundColor: colors.primary, borderColor: colors.surface }]}
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                navigation.navigate('CreateStory' as never);
+                            }}
+                            activeOpacity={0.8}
+                        >
                             <Icon name="add" size={14} color="#FFFFFF" />
-                        </View>
+                        </TouchableOpacity>
                     )}
                 </View>
                 <Text style={[styles.storyName, { color: colors.text }]} numberOfLines={1}>
@@ -350,6 +398,7 @@ export default function HomeScreen() {
             <TouchableOpacity
                 style={[styles.chatItem, { backgroundColor: colors.surface }]}
                 onPress={() => handleChatPress(item)}
+                onLongPress={() => handleLongPressChat(item)}
                 activeOpacity={0.7}
             >
                 <View style={styles.avatarContainer}>

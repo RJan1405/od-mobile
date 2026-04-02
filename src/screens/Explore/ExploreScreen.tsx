@@ -31,7 +31,9 @@ import api from '@/services/api';
 import ScribeCard from '@/components/ScribeCard';
 import ScribeCommentsSheet from '@/components/ScribeCommentsSheet';
 import OmzoCommentsSheet from '@/components/OmzoCommentsSheet';
+import ShareSheet from '@/components/ShareSheet';
 import type { User, Scribe, Omzo } from '@/types';
+import OmzoActionsSheet from '@/components/OmzoActionsSheet';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -86,6 +88,10 @@ export default function ExploreScreen() {
     const [commentScribeId, setCommentScribeId] = useState<number | null>(null);
     const [commentOmzoId, setCommentOmzoId] = useState<number | null>(null);
     const [commentCountForSheet, setCommentCountForSheet] = useState(0);
+    const [isOmzoActionsVisible, setIsOmzoActionsVisible] = useState(false);
+    const [omzoForActions, setOmzoForActions] = useState<any | null>(null);
+    const [isShareVisible, setIsShareVisible] = useState(false);
+    const [shareContent, setShareContent] = useState<{ id: number; type: 'scribe' | 'omzo'; url: string } | null>(null);
 
     // Refs to prevent concurrent fetches and track loaded state
     const isLoadingRef = useRef(false);
@@ -125,7 +131,7 @@ export default function ExploreScreen() {
     useEffect(() => {
         const scribeDeletedSubscription = DeviceEventEmitter.addListener('SCRIBE_DELETED', ({ scribeId }) => {
             setExploreFeed(prev => prev.filter(item => item.id !== scribeId));
-            
+
             // Also close modals if they were showing the deleted item
             if (selectedScribe?.id === scribeId) {
                 setIsModalVisible(false);
@@ -373,7 +379,7 @@ export default function ExploreScreen() {
                 avatar: item.user?.avatar || item.user_profile_picture
             }
         };
-        navigation.navigate('OmzoViewer' as never, { omzo: transformedItem } as never);
+        navigation.navigate('OmzoViewer' as any, { omzo: transformedItem } as any);
     };
 
     const openScribeComments = (scribeId: string | number, initialCount: number) => {
@@ -401,6 +407,11 @@ export default function ExploreScreen() {
         setTimeout(() => {
             setCommentOmzoId(null);
         }, 300);
+    };
+
+    const openOmzoActions = (item: any) => {
+        setOmzoForActions(item);
+        setIsOmzoActionsVisible(true);
     };
 
     const handleModalLike = async () => {
@@ -658,7 +669,7 @@ export default function ExploreScreen() {
         }
 
         try {
-            const response = await api.toggleOmzoDislike(parseInt(selectedOmzo.id));
+            const response = await api.toggleOmzoDislike(parseInt(selectedOmzo.id)) as any;
             if (response.success) {
                 setModalDisliked(response.is_disliked);
                 setModalDislikeCount(response.dislike_count);
@@ -693,9 +704,9 @@ export default function ExploreScreen() {
         setModalSaved(!modalSaved);
 
         try {
-            const response = await api.toggleSaveOmzo(parseInt(selectedOmzo.id));
+            const response = await api.toggleSaveOmzo(parseInt(selectedOmzo.id)) as any;
             if (response.success) {
-                setModalSaved(response.is_saved);
+                setModalSaved(response.is_saved || false);
                 // Update in feed
                 updateFeedItem(selectedOmzo.id, { isSaved: response.is_saved });
             } else {
@@ -776,7 +787,9 @@ export default function ExploreScreen() {
         const key = `scribe_${scribeId}`;
         const prevInteraction = interactions[key] || {
             is_liked: currentLiked,
-            like_count: exploreFeed.find(i => i.id === scribeId)?.likes || 0
+            like_count: exploreFeed.find(i => i.id === scribeId)?.likes || 0,
+            is_disliked: exploreFeed.find(i => i.id === scribeId)?.isDisliked || false,
+            dislike_count: exploreFeed.find(i => i.id === scribeId)?.dislikes || 0
         };
 
         // Optimistic update
@@ -785,9 +798,17 @@ export default function ExploreScreen() {
             ? Math.max(0, (prevInteraction.like_count || 0) - 1)
             : (prevInteraction.like_count || 0) + 1;
 
+        // If liking, clear dislike
+        const newIsDisliked = newIsLiked ? false : prevInteraction.is_disliked;
+        const newDislikeCount = (newIsLiked && prevInteraction.is_disliked)
+            ? Math.max(0, (prevInteraction.dislike_count || 0) - 1)
+            : prevInteraction.dislike_count;
+
         setInteraction('scribe', scribeId, {
             is_liked: newIsLiked,
-            like_count: newLikeCount
+            like_count: newLikeCount,
+            is_disliked: newIsDisliked,
+            dislike_count: newDislikeCount
         });
 
         try {
@@ -804,6 +825,51 @@ export default function ExploreScreen() {
             }
         } catch (error) {
             console.error('Error liking scribe:', error);
+            setInteraction('scribe', scribeId, prevInteraction);
+        }
+    };
+
+    const handleScribeDislike = async (scribeId: string, currentDisliked: boolean) => {
+        const key = `scribe_${scribeId}`;
+        const prevInteraction = interactions[key] || {
+            is_disliked: currentDisliked,
+            dislike_count: exploreFeed.find(i => i.id === scribeId)?.dislikes || 0,
+            is_liked: exploreFeed.find(i => i.id === scribeId)?.isLiked || false,
+            like_count: exploreFeed.find(i => i.id === scribeId)?.likes || 0
+        };
+
+        const newIsDisliked = !prevInteraction.is_disliked;
+        const newDislikeCount = prevInteraction.is_disliked
+            ? Math.max(0, (prevInteraction.dislike_count || 0) - 1)
+            : (prevInteraction.dislike_count || 0) + 1;
+
+        // If disliking, clear like
+        const newIsLiked = newIsDisliked ? false : prevInteraction.is_liked;
+        const newLikeCount = (newIsDisliked && prevInteraction.is_liked)
+            ? Math.max(0, (prevInteraction.like_count || 0) - 1)
+            : prevInteraction.like_count;
+
+        setInteraction('scribe', scribeId, {
+            is_disliked: newIsDisliked,
+            dislike_count: newDislikeCount,
+            is_liked: newIsLiked,
+            like_count: newLikeCount
+        });
+
+        try {
+            const response = await api.toggleDislike(parseInt(scribeId));
+            if (response.success) {
+                setInteraction('scribe', scribeId, {
+                    is_liked: (response as any).is_liked,
+                    like_count: (response as any).like_count,
+                    is_disliked: (response as any).is_disliked,
+                    dislike_count: (response as any).dislike_count
+                });
+            } else {
+                setInteraction('scribe', scribeId, prevInteraction);
+            }
+        } catch (error) {
+            console.error('Error disliking scribe:', error);
             setInteraction('scribe', scribeId, prevInteraction);
         }
     };
@@ -833,7 +899,9 @@ export default function ExploreScreen() {
         const key = `omzo_${omzoId}`;
         const prevInteraction = interactions[key] || {
             is_liked: currentLiked,
-            like_count: exploreFeed.find(i => i.id === omzoId)?.likes || 0
+            like_count: exploreFeed.find(i => i.id === omzoId)?.likes || 0,
+            is_disliked: exploreFeed.find(i => i.id === omzoId)?.isDisliked || false,
+            dislike_count: exploreFeed.find(i => i.id === omzoId)?.dislikes || 0
         };
 
         const newIsLiked = !prevInteraction.is_liked;
@@ -841,9 +909,17 @@ export default function ExploreScreen() {
             ? Math.max(0, (prevInteraction.like_count || 0) - 1)
             : (prevInteraction.like_count || 0) + 1;
 
+        // If liking, clear dislike
+        const newIsDisliked = newIsLiked ? false : prevInteraction.is_disliked;
+        const newDislikeCount = (newIsLiked && prevInteraction.is_disliked)
+            ? Math.max(0, (prevInteraction.dislike_count || 0) - 1)
+            : prevInteraction.dislike_count;
+
         setInteraction('omzo', omzoId, {
             is_liked: newIsLiked,
-            like_count: newLikeCount
+            like_count: newLikeCount,
+            is_disliked: newIsDisliked,
+            dislike_count: newDislikeCount
         });
 
         try {
@@ -860,6 +936,51 @@ export default function ExploreScreen() {
             }
         } catch (error) {
             console.error('Error liking omzo:', error);
+            setInteraction('omzo', omzoId, prevInteraction);
+        }
+    };
+
+    const handleOmzoDislike = async (omzoId: string, currentDisliked: boolean) => {
+        const key = `omzo_${omzoId}`;
+        const prevInteraction = interactions[key] || {
+            is_disliked: currentDisliked,
+            dislike_count: exploreFeed.find(i => i.id === omzoId)?.dislikes || 0,
+            is_liked: exploreFeed.find(i => i.id === omzoId)?.isLiked || false,
+            like_count: exploreFeed.find(i => i.id === omzoId)?.likes || 0
+        };
+
+        const newIsDisliked = !prevInteraction.is_disliked;
+        const newDislikeCount = prevInteraction.is_disliked
+            ? Math.max(0, (prevInteraction.dislike_count || 0) - 1)
+            : (prevInteraction.dislike_count || 0) + 1;
+
+        // If disliking, clear like
+        const newIsLiked = newIsDisliked ? false : prevInteraction.is_liked;
+        const newLikeCount = (newIsDisliked && prevInteraction.is_liked)
+            ? Math.max(0, (prevInteraction.like_count || 0) - 1)
+            : prevInteraction.like_count;
+
+        setInteraction('omzo', omzoId, {
+            is_disliked: newIsDisliked,
+            dislike_count: newDislikeCount,
+            is_liked: newIsLiked,
+            like_count: newLikeCount
+        });
+
+        try {
+            const response = await api.toggleOmzoDislike(parseInt(omzoId));
+            if (response.success) {
+                setInteraction('omzo', omzoId, {
+                    is_liked: (response as any).is_liked,
+                    like_count: (response as any).like_count,
+                    is_disliked: (response as any).is_disliked,
+                    dislike_count: (response as any).dislike_count
+                });
+            } else {
+                setInteraction('omzo', omzoId, prevInteraction);
+            }
+        } catch (error) {
+            console.error('Error disliking omzo:', error);
             setInteraction('omzo', omzoId, prevInteraction);
         }
     };
@@ -1106,7 +1227,13 @@ export default function ExploreScreen() {
 
         if (item.type === 'scribe' || item.type === 'post') {
             return (
-                <View style={styles.scribeResult}>
+                <TouchableOpacity
+                    style={styles.scribeResult}
+                    onPress={() => {
+                        const handle = item.username || item.title || 'unknown';
+                        (navigation as any).navigate('Profile', { username: handle });
+                    }}
+                >
                     <View style={styles.searchResultHeader}>
                         <Icon name="document-text" size={16} color={colors.primary} />
                         <Text style={[styles.resultType, { color: colors.textSecondary }]}>Post</Text>
@@ -1114,13 +1241,18 @@ export default function ExploreScreen() {
                     <Text style={[styles.resultContent, { color: colors.text }]} numberOfLines={3}>
                         {item.subtitle}
                     </Text>
-                </View>
+                </TouchableOpacity>
             );
         }
 
         if (item.type === 'omzo') {
             return (
-                <View style={styles.scribeResult}>
+                <TouchableOpacity
+                    style={styles.scribeResult}
+                    onPress={() => {
+                        (navigation as any).navigate('OmzoViewer' as any, { omzoId: item.id, initialOmzoId: item.id } as any);
+                    }}
+                >
                     <View style={styles.searchResultHeader}>
                         <Icon name="videocam" size={16} color={colors.primary} />
                         <Text style={[styles.resultType, { color: colors.textSecondary }]}>Omzo</Text>
@@ -1128,7 +1260,7 @@ export default function ExploreScreen() {
                     <Text style={[styles.resultContent, { color: colors.text }]} numberOfLines={2}>
                         {item.subtitle}
                     </Text>
-                </View>
+                </TouchableOpacity>
             );
         }
 
@@ -1170,7 +1302,6 @@ export default function ExploreScreen() {
                 <ScribeCard
                     key={`scribe-${item.id}`}
                     scribe={scribe}
-                    onPress={() => openScribeModal(scribe)}
                     onCommentPress={() => openScribeComments(scribe.id, scribe.comment_count || 0)}
                     onSaveToggle={(scribeId, isSaved) => updateFeedItem(item.id, { isSaved })}
                 />
@@ -1247,7 +1378,15 @@ export default function ExploreScreen() {
                             {/* Follow button — show when not own post, toggle between Follow/Following */}
 
 
-                            <Icon name="ellipsis-horizontal" size={18} color={colors.textSecondary} style={{ marginLeft: 6 }} />
+                            <TouchableOpacity
+                                hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                                onPress={(e) => {
+                                    e.stopPropagation();
+                                    openOmzoActions(item);
+                                }}
+                            >
+                                <Icon name="ellipsis-horizontal" size={18} color={colors.textSecondary} style={{ marginLeft: 6 }} />
+                            </TouchableOpacity>
                         </View>
 
 
@@ -1296,7 +1435,7 @@ export default function ExploreScreen() {
                                 size={22}
                                 color={(interactions[`omzo_${item.id}`]?.is_liked ?? item.isLiked) ? '#FF3B5C' : colors.textSecondary}
                             />
-                            <Text style={[styles.actionCount, { color: colors.textSecondary }, (interactions[`omzo_${item.id}`]?.is_liked ?? item.isLiked) && { color: '#FF3B5C' }]}>
+                            <Text style={[styles.actionCount, { color: colors.textSecondary }, (interactions[`omzo_${item.id}`]?.is_liked ?? item.is_liked) && { color: '#FF3B5C' }]}>
                                 {formatCount(interactions[`omzo_${item.id}`]?.like_count ?? (item.likes || 0))}
                             </Text>
                         </TouchableOpacity>
@@ -1305,12 +1444,33 @@ export default function ExploreScreen() {
                             style={styles.actionBtn}
                             onPress={(e) => {
                                 e.stopPropagation();
-                                const currentCount = interactions[`omzo_${item.id}`]?.comment_count ?? (item.comments || 0);
-                                openOmzoComments(item.id, currentCount);
+                                const key = `omzo_${item.id}`;
+                                const currentlyDisliked = !!(interactions[key]?.is_disliked ?? item.is_disliked);
+                                handleOmzoDislike(String(item.id), currentlyDisliked);
                             }}
                             activeOpacity={0.7}
                             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                         >
+                            <Icon
+                                name={(interactions[`omzo_${item.id}`]?.is_disliked ?? item.is_disliked) ? 'thumbs-down' : 'thumbs-down-outline'}
+                                size={22}
+                                color={(interactions[`omzo_${item.id}`]?.is_disliked ?? item.is_disliked) ? colors.primary : colors.textSecondary}
+                            />
+                            <Text style={[styles.actionCount, { color: colors.textSecondary }, (interactions[`omzo_${item.id}`]?.is_disliked ?? item.is_disliked) && { color: colors.primary }]}>
+                                {formatCount(interactions[`omzo_${item.id}`]?.dislike_count ?? (item.dislikes || 0))}
+                            </Text>
+                        </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.actionBtn}
+                                onPress={(e) => {
+                                    e.stopPropagation();
+                                    const currentCount = interactions[`omzo_${item.id}`]?.comment_count ?? (item.comments || 0);
+                                    openOmzoComments(String(item.id), currentCount);
+                                }}
+                                activeOpacity={0.7}
+                                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                            >
                             <Icon name="chatbubble-outline" size={20} color={colors.textSecondary} />
                             <Text style={[styles.actionCount, { color: colors.textSecondary }]}>
                                 {formatCount(interactions[`omzo_${item.id}`]?.comment_count ?? (item.comments || 0))}
@@ -1360,8 +1520,12 @@ export default function ExploreScreen() {
                             style={styles.actionIconBtn}
                             onPress={(e) => {
                                 e.stopPropagation();
-                                // Share logic placeholder
-                                Alert.alert('Share', 'Share functionality coming soon!');
+                                setShareContent({
+                                    id: parseInt(item.id),
+                                    type: 'omzo',
+                                    url: `https://odnix.com/omzo/${item.id}/`
+                                });
+                                setIsShareVisible(true);
                             }}
                             activeOpacity={0.7}
                             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
@@ -1393,7 +1557,6 @@ export default function ExploreScreen() {
                         isLarge && styles.masonryCardLarge,
                         isMedium && !isLarge && styles.masonryCardMedium,
                     ]}
-                    onPress={() => openScribeModal(item)}
                 >
                     {/* User Header */}
                     <View style={styles.cardHeader}>
@@ -1449,11 +1612,30 @@ export default function ExploreScreen() {
                             }}
                         >
                             <Icon
-                                name={item.isLiked ? "heart" : "heart-outline"}
+                                name={(interactions[`scribe_${item.id}`]?.is_liked ?? item.is_liked) ? "heart" : "heart-outline"}
                                 size={18}
-                                color={item.isLiked ? "#EF4444" : colors.textSecondary}
+                                color={(interactions[`scribe_${item.id}`]?.is_liked ?? item.is_liked) ? "#EF4444" : colors.textSecondary}
                             />
-                            <Text style={[styles.cardStatText, { color: colors.textSecondary }]}>{item.likes || 0}</Text>
+                            <Text style={[styles.cardStatText, { color: (interactions[`scribe_${item.id}`]?.is_liked ?? item.is_liked) ? "#EF4444" : colors.textSecondary }]}>{formatCount(interactions[`scribe_${item.id}`]?.like_count ?? (item.likes || 0))}</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.cardAction}
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                const key = `scribe_${item.id}`;
+                                const currentlyDisliked = !!(interactions[key]?.is_disliked ?? item.is_disliked);
+                                handleScribeDislike(String(item.id), currentlyDisliked);
+                            }}
+                        >
+                            <Icon
+                                name={(interactions[`scribe_${item.id}`]?.is_disliked ?? item.is_disliked) ? "thumbs-down" : "thumbs-down-outline"}
+                                size={18}
+                                color={(interactions[`scribe_${item.id}`]?.is_disliked ?? item.is_disliked) ? colors.primary : colors.textSecondary}
+                            />
+                            <Text style={[styles.cardStatText, { color: (interactions[`scribe_${item.id}`]?.is_disliked ?? item.is_disliked) ? colors.primary : colors.textSecondary }]}>
+                                {formatCount(interactions[`scribe_${item.id}`]?.dislike_count ?? (item.dislikes || 0))}
+                            </Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                             style={styles.cardAction}
@@ -1574,8 +1756,28 @@ export default function ExploreScreen() {
                                     size={22}
                                     color={(interactions[`omzo_${item.id}`]?.is_liked ?? item.isLiked) ? "#EF4444" : colors.textSecondary}
                                 />
-                                <Text style={[styles.omzoStatText, { color: colors.textSecondary }, (interactions[`omzo_${item.id}`]?.is_liked ?? item.isLiked) && { color: "#EF4444" }]}>
+                                <Text style={[styles.omzoStatText, { color: colors.textSecondary }, (interactions[`omzo_${item.id}`]?.is_liked ?? item.is_liked) && { color: "#EF4444" }]}>
                                     {formatCount(interactions[`omzo_${item.id}`]?.like_count ?? (item.likes || 0))}
+                                </Text>
+                            </TouchableOpacity>
+
+                            {/* Dislike Icon for Masonry Grid */}
+                            <TouchableOpacity
+                                style={styles.omzoStatItem}
+                                onPress={(e) => {
+                                    e.stopPropagation();
+                                    const key = `omzo_${item.id}`;
+                                    const currentlyDisliked = !!(interactions[key]?.is_disliked ?? item.is_disliked);
+                                    handleOmzoDislike(String(item.id), currentlyDisliked);
+                                }}
+                            >
+                                <Icon
+                                    name={(interactions[`omzo_${item.id}`]?.is_disliked ?? item.is_disliked) ? "thumbs-down" : "thumbs-down-outline"}
+                                    size={20}
+                                    color={(interactions[`omzo_${item.id}`]?.is_disliked ?? item.is_disliked) ? colors.primary : colors.textSecondary}
+                                />
+                                <Text style={[styles.omzoStatText, { color: colors.textSecondary }, (interactions[`omzo_${item.id}`]?.is_disliked ?? item.is_disliked) && { color: colors.primary }]}>
+                                    {formatCount(interactions[`omzo_${item.id}`]?.dislike_count ?? (item.dislikes || 0))}
                                 </Text>
                             </TouchableOpacity>
                             <TouchableOpacity
@@ -1627,7 +1829,15 @@ export default function ExploreScreen() {
 
                             <TouchableOpacity
                                 style={styles.omzoStatItemIcon}
-                                onPress={(e) => e.stopPropagation()}
+                                onPress={(e) => {
+                                    e.stopPropagation();
+                                    setShareContent({
+                                        id: parseInt(item.id),
+                                        type: 'omzo',
+                                        url: `https://odnix.com/omzo/${item.id}/`
+                                    });
+                                    setIsShareVisible(true);
+                                }}
                             >
                                 <Icon name="paper-plane-outline" size={20} color={colors.textSecondary} />
                             </TouchableOpacity>
@@ -1961,6 +2171,16 @@ export default function ExploreScreen() {
                                             color={modalSaved ? colors.primary : colors.textSecondary}
                                         />
                                     </TouchableOpacity>
+                                    <TouchableOpacity style={styles.modalActionButton} onPress={() => {
+                                        setShareContent({
+                                            id: parseInt(selectedScribe.id),
+                                            type: 'scribe',
+                                            url: `https://odnix.com/scribe/${selectedScribe.id}/`
+                                        });
+                                        setIsShareVisible(true);
+                                    }}>
+                                        <Icon name="paper-plane-outline" size={26} color={colors.textSecondary} />
+                                    </TouchableOpacity>
                                     <TouchableOpacity style={styles.modalActionButton} onPress={handleModalDislike}>
                                         <Icon
                                             name={modalDisliked ? "thumbs-down" : "thumbs-down-outline"}
@@ -2043,6 +2263,47 @@ export default function ExploreScreen() {
                     onCommentAdded={() => {
                         // Optional: update local state if needed
                     }}
+                />
+            )}
+            {omzoForActions && (
+                <OmzoActionsSheet
+                    isVisible={isOmzoActionsVisible}
+                    onClose={() => setIsOmzoActionsVisible(false)}
+                    omzo={{
+                        id: omzoForActions.id,
+                        caption: omzoForActions.caption,
+                        video_url: omzoForActions.videoUrl,
+                        thumbnail_url: omzoForActions.thumbnailUrl,
+                        user: {
+                            id: omzoForActions.user?.id || 0,
+                            username: omzoForActions.user?.username || omzoForActions.user_username || '',
+                            display_name: omzoForActions.user?.displayName || omzoForActions.user_full_name || '',
+                            profile_picture_url: omzoForActions.user?.avatar || omzoForActions.user_profile_picture || '',
+                        },
+                        likes: omzoForActions.likes,
+                        comments: omzoForActions.comments,
+                        shares: omzoForActions.shares || 0,
+                        isLiked: omzoForActions.isLiked,
+                        isSaved: omzoForActions.isSaved,
+                        timestamp: omzoForActions.createdAt,
+                    } as any}
+                    isSaved={interactions[`omzo_${omzoForActions.id}`]?.is_saved ?? omzoForActions.isSaved}
+                    onToggleSave={() => handleOmzoSave(String(omzoForActions.id), !!(interactions[`omzo_${omzoForActions.id}`]?.is_saved ?? omzoForActions.isSaved))}
+                    isReposted={interactions[`omzo_${omzoForActions.id}`]?.is_reposted ?? omzoForActions.isReposted}
+                    onToggleRepost={() => handleOmzoRepost(String(omzoForActions.id))}
+                    isOwnOmzo={user?.username === (omzoForActions.user?.username || omzoForActions.user_username)}
+                    onDelete={(id) => {
+                        setExploreFeed(prev => prev.filter(feedItem => feedItem.id !== id));
+                    }}
+                />
+            )}
+            {isShareVisible && shareContent && (
+                <ShareSheet
+                    isVisible={isShareVisible}
+                    onClose={() => setIsShareVisible(false)}
+                    contentId={shareContent.id}
+                    contentType={shareContent.type}
+                    contentUrl={shareContent.url}
                 />
             )}
         </View>
@@ -2148,6 +2409,10 @@ const styles = StyleSheet.create({
     exploreFollowBtnText: {
         color: '#3B82F6',
         fontSize: 12,
+        fontWeight: '700',
+    },
+    followLinkText: {
+        fontSize: 14,
         fontWeight: '700',
     },
     exploreOmzoActions: {
