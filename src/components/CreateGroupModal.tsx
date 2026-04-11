@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     View,
     Text,
@@ -19,6 +19,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { useThemeStore } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useChatStore } from '@/stores/chatStore';
 import api from '@/services/api';
 import type { User } from '@/types';
 
@@ -31,7 +32,8 @@ interface CreateGroupModalProps {
 export default function CreateGroupModal({ visible, onClose, onGroupCreated }: CreateGroupModalProps) {
     const { colors } = useThemeStore();
     const { user } = useAuthStore();
-    
+    const { chats } = useChatStore();
+
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [avatar, setAvatar] = useState<any>(null);
@@ -51,28 +53,20 @@ export default function CreateGroupModal({ visible, onClose, onGroupCreated }: C
         if (!user) return;
         setFetchingMembers(true);
         try {
-            // Fetch both following and followers to give a complete list of potential group members
-            const [followingRes, followersRes] = await Promise.all([
-                api.getFollowing(user.username),
-                api.getFollowers(user.username)
-            ]);
+            const chatUsers: User[] = [];
+            const userIds = new Set<number>();
 
-            let allMembers: User[] = [];
-            if (followingRes.success) {
-                const following = followingRes.following || [];
-                allMembers = [...following];
-            }
-            if (followersRes.success) {
-                const followers = followersRes.followers || [];
-                // Add followers that are not already in the list
-                followers.forEach((follower: User) => {
-                    if (!allMembers.find(m => m.id === follower.id)) {
-                        allMembers.push(follower);
+            chats.forEach(chat => {
+                if (chat.chat_type === 'private') {
+                    const otherPerson = chat.participants.find(p => p.id !== user.id);
+                    if (otherPerson && !userIds.has(otherPerson.id)) {
+                        userIds.add(otherPerson.id);
+                        chatUsers.push(otherPerson);
                     }
-                });
-            }
-            
-            setMembersList(allMembers);
+                }
+            });
+
+            setMembersList(chatUsers);
         } catch (error) {
             console.error('Error fetching members:', error);
         } finally {
@@ -99,12 +93,17 @@ export default function CreateGroupModal({ visible, onClose, onGroupCreated }: C
         }
     };
 
+    const isSubmitting = useRef(false);
+
     const handleCreate = async () => {
+        if (isSubmitting.current) return;
+
         if (!name.trim()) {
             Alert.alert('Required', 'Please enter a group name');
             return;
         }
 
+        isSubmitting.current = true;
         setLoading(true);
         try {
             const formData = new FormData();
@@ -112,7 +111,7 @@ export default function CreateGroupModal({ visible, onClose, onGroupCreated }: C
             formData.append('description', description.trim());
             formData.append('is_public', 'false');
             formData.append('max_participants', '100');
-            
+
             // Participants must be a JSON string for the backend as per chat/views/chat.py
             formData.append('participants', JSON.stringify(selectedMembers));
 
@@ -125,10 +124,14 @@ export default function CreateGroupModal({ visible, onClose, onGroupCreated }: C
             }
 
             const response = await api.createGroup(formData);
-            if (response.success && response.data?.group) {
+
+            // The backend returns { success: True, chat_id: ... }
+            const createdGroupId = response.chat_id || response.data?.chat_id || response.group?.id || response.data?.group?.id;
+
+            if (response.success && createdGroupId) {
                 Alert.alert('Success', 'Group created successfully');
                 if (onGroupCreated) {
-                    onGroupCreated(response.data.group.id);
+                    onGroupCreated(createdGroupId);
                 }
                 resetAndClose();
             } else {
@@ -139,6 +142,7 @@ export default function CreateGroupModal({ visible, onClose, onGroupCreated }: C
             Alert.alert('Error', 'An unexpected error occurred');
         } finally {
             setLoading(false);
+            isSubmitting.current = false;
         }
     };
 
@@ -151,7 +155,7 @@ export default function CreateGroupModal({ visible, onClose, onGroupCreated }: C
         onClose();
     };
 
-    const filteredMembers = membersList.filter(member => 
+    const filteredMembers = membersList.filter(member =>
         (member.full_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (member.username || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
@@ -161,7 +165,7 @@ export default function CreateGroupModal({ visible, onClose, onGroupCreated }: C
         const avatarUrl = item.avatar || item.profile_picture_url || item.profile_picture || 'https://via.placeholder.com/40';
 
         return (
-            <TouchableOpacity 
+            <TouchableOpacity
                 style={[styles.memberItem, { borderBottomColor: colors.border }]}
                 onPress={() => toggleMember(item.id)}
             >
@@ -171,7 +175,7 @@ export default function CreateGroupModal({ visible, onClose, onGroupCreated }: C
                     <Text style={[styles.memberUsername, { color: colors.textSecondary }]}>@{item.username}</Text>
                 </View>
                 <View style={[
-                    styles.checkbox, 
+                    styles.checkbox,
                     { borderColor: colors.primary },
                     isSelected && { backgroundColor: colors.primary }
                 ]}>
@@ -189,7 +193,7 @@ export default function CreateGroupModal({ visible, onClose, onGroupCreated }: C
             onRequestClose={resetAndClose}
         >
             <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-                <KeyboardAvoidingView 
+                <KeyboardAvoidingView
                     behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                     style={{ flex: 1 }}
                 >
@@ -267,7 +271,7 @@ export default function CreateGroupModal({ visible, onClose, onGroupCreated }: C
                                             <Icon name="search" size={18} color={colors.textSecondary} />
                                             <TextInput
                                                 style={[styles.searchInput, { color: colors.text }]}
-                                                placeholder="Search following/followers"
+                                                placeholder="Search active chats"
                                                 placeholderTextColor={colors.textSecondary}
                                                 value={searchQuery}
                                                 onChangeText={setSearchQuery}
@@ -283,7 +287,7 @@ export default function CreateGroupModal({ visible, onClose, onGroupCreated }: C
                             }
                             ListEmptyComponent={
                                 <View style={styles.emptyContainer}>
-                                    <Text style={{ color: colors.textSecondary }}>No connections found</Text>
+                                    <Text style={{ color: colors.textSecondary }}>No active chats found</Text>
                                 </View>
                             }
                         />
@@ -334,12 +338,12 @@ const styles = StyleSheet.create({
     groupAvatar: {
         width: 80,
         height: 80,
-        borderRadius: 40,
+        borderRadius: 24,
     },
     placeholderAvatar: {
         width: 80,
         height: 80,
-        borderRadius: 40,
+        borderRadius: 24,
         borderWidth: 1,
         justifyContent: 'center',
         alignItems: 'center',
@@ -406,7 +410,7 @@ const styles = StyleSheet.create({
     memberAvatar: {
         width: 48,
         height: 48,
-        borderRadius: 24,
+        borderRadius: 10,
         marginRight: 12,
     },
     memberInfo: {

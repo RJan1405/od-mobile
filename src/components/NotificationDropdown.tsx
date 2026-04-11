@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, FlatList, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, FlatList, Platform, Modal, Pressable } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '@/stores/themeStore';
 import type { Notification } from '@/types';
@@ -70,36 +70,39 @@ export default function NotificationDropdown({ notifications, onClose, onMarkAll
     };
 
     return (
-        <View style={[styles.container, { backgroundColor: colors.surface, borderColor: 'rgba(0,0,0,0.05)' }]}>
-            <View style={[styles.header, { borderBottomWidth: 1, borderBottomColor: colors.border }]}>
-                <View style={styles.headerTitleRow}>
-                    <Text style={[styles.headerTitle, { color: colors.text }]}>Notifications</Text>
-                    {unreadCount > 0 && (
-                        <View style={[styles.unreadBadge, { backgroundColor: '#E0F2FE' }]}>
-                            <Text style={[styles.unreadBadgeText, { color: '#0369A1' }]}>{unreadCount}</Text>
-                        </View>
-                    )}
-                </View>
-                <TouchableOpacity onPress={onMarkAllRead}>
-                    <Text style={[styles.markReadText, { color: '#3B82F6' }]}>Mark all read</Text>
-                </TouchableOpacity>
-            </View>
-            <FlatList
-                data={notifications}
-                renderItem={renderNotification}
-                keyExtractor={item => item.id.toString()}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.listContent}
-                ListHeaderComponent={<View style={{ height: 4 }} />}
-                ListFooterComponent={<View style={{ height: 8 }} />}
-                ListEmptyComponent={
-                    <View style={styles.emptyContainer}>
-                        <Icon name="notifications-off-outline" size={40} color={colors.textSecondary} style={{ marginBottom: 12, opacity: 0.5 }} />
-                        <Text style={{ color: colors.textSecondary, fontSize: 14 }}>No notifications yet</Text>
+        <Modal transparent visible animationType="fade" onRequestClose={onClose}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+            <View style={[styles.container, { backgroundColor: colors.surface, borderColor: 'rgba(0,0,0,0.05)' }]}>
+                <View style={[styles.header, { borderBottomWidth: 1, borderBottomColor: colors.border }]}>
+                    <View style={styles.headerTitleRow}>
+                        <Text style={[styles.headerTitle, { color: colors.text }]}>Notifications</Text>
+                        {unreadCount > 0 && (
+                            <View style={[styles.unreadBadge, { backgroundColor: '#E0F2FE' }]}>
+                                <Text style={[styles.unreadBadgeText, { color: '#0369A1' }]}>{unreadCount}</Text>
+                            </View>
+                        )}
                     </View>
-                }
-            />
-        </View>
+                    <TouchableOpacity onPress={onMarkAllRead}>
+                        <Text style={[styles.markReadText, { color: '#3B82F6' }]}>Mark all read</Text>
+                    </TouchableOpacity>
+                </View>
+                <FlatList
+                    data={notifications}
+                    renderItem={renderNotification}
+                    keyExtractor={item => item.id.toString()}
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={styles.listContent}
+                    ListHeaderComponent={<View style={{ height: 4 }} />}
+                    ListFooterComponent={<View style={{ height: 8 }} />}
+                    ListEmptyComponent={
+                        <View style={styles.emptyContainer}>
+                            <Icon name="notifications-off-outline" size={40} color={colors.textSecondary} style={{ marginBottom: 12, opacity: 0.5 }} />
+                            <Text style={{ color: colors.textSecondary, fontSize: 14 }}>No notifications yet</Text>
+                        </View>
+                    }
+                />
+            </View>
+        </Modal>
     );
 }
 

@@ -12,6 +12,7 @@ import {
     Share,
     DeviceEventEmitter,
 } from 'react-native';
+import FastImage from 'react-native-fast-image';
 import Video from 'react-native-video';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -41,13 +42,14 @@ export default function ProfileScreen() {
     const { colors, theme } = useThemeStore();
     const { user: currentUser } = useAuthStore();
     const { username } = (route.params as { username?: string }) || {};
+    const isOwnProfile = !username || username === currentUser?.username;
 
-    const [user, setUser] = useState<User | null>(null);
+    const [user, setUser] = useState<User | null>(isOwnProfile && currentUser ? currentUser : null);
     const [scribes, setScribes] = useState<Scribe[]>([]);
     const [reposts, setReposts] = useState<Scribe[]>([]);
     const [omzos, setOmzos] = useState<Omzo[]>([]);
     const [savedItems, setSavedItems] = useState<any[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isLoading, setIsLoading] = useState(!user);
     const [isLoadingSaved, setIsLoadingSaved] = useState(false);
     const [activeTab, setActiveTab] = useState<'scribes' | 'reposts' | 'omzos' | 'saved'>('scribes');
 
@@ -66,7 +68,6 @@ export default function ProfileScreen() {
     const followRequestStatus = getRequestStatus(profileUsername) ?? null;
 
     const themeInfo = THEME_INFO[theme];
-    const isOwnProfile = !username || username === currentUser?.username;
     const isPrivate = user?.is_private && !isFollowing && !isOwnProfile;
 
     useEffect(() => {
@@ -91,7 +92,7 @@ export default function ProfileScreen() {
     }, [username, currentUser]);
 
     const loadProfile = async () => {
-        setIsLoading(true);
+        if (!user) setIsLoading(true);
         try {
             if (isOwnProfile) {
                 if (currentUser?.username) {
@@ -371,8 +372,12 @@ export default function ProfileScreen() {
                 {/* Cover Image Area */}
                 <View style={[styles.coverContainer, { backgroundColor: colors.primary + '20' }]}>
                     {(user as any).cover_image_url ? (
-                        <Image
-                            source={{ uri: (user as any).cover_image_url }}
+                        <FastImage
+                            source={{ 
+                                uri: (user as any).cover_image_url,
+                                priority: FastImage.priority.normal,
+                                cache: FastImage.cacheControl.immutable,
+                            }}
                             style={styles.coverImage}
                         />
                     ) : (
@@ -384,8 +389,12 @@ export default function ProfileScreen() {
                     {/* Profile Picture (Overlapping) */}
                     <View style={styles.profileImageWrapper}>
                         {hasValidProfilePic ? (
-                            <Image
-                                source={{ uri: profilePicUri }}
+                            <FastImage
+                                source={{ 
+                                    uri: profilePicUri,
+                                    priority: FastImage.priority.high,
+                                    cache: FastImage.cacheControl.immutable,
+                                }}
                                 style={[styles.profileImage, { borderColor: colors.background, borderWidth: 4 }]}
                             />
                         ) : (

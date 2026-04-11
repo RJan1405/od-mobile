@@ -395,8 +395,8 @@ class ApiService {
             // Using absolute root URL to bypass /api/ prefix as web template does
             const url = `${API_CONFIG.BASE_URL}/delete-message-for-me/${messageId}/`;
             const response = await this.api.post(url, {}, {
-                headers: { 
-                    'X-CSRFToken': '1234567890123456789012345678901234567890123456789012345678901234', 
+                headers: {
+                    'X-CSRFToken': '1234567890123456789012345678901234567890123456789012345678901234',
                     'X-Requested-With': 'XMLHttpRequest'
                 }
             });
@@ -414,8 +414,8 @@ class ApiService {
             // Using absolute root URL to bypass /api/ prefix as web template does
             const url = `${API_CONFIG.BASE_URL}/delete-message-for-everyone/${messageId}/`;
             const response = await this.api.post(url, {}, {
-                headers: { 
-                    'X-CSRFToken': '1234567890123456789012345678901234567890123456789012345678901234', 
+                headers: {
+                    'X-CSRFToken': '1234567890123456789012345678901234567890123456789012345678901234',
                     'X-Requested-With': 'XMLHttpRequest'
                 }
             });
@@ -810,7 +810,7 @@ class ApiService {
     }
 
     // ==================== GROUPS ====================
-    async createGroup(formData: FormData): Promise<ApiResponse<{ group: any }>> {
+    async createGroup(formData: FormData): Promise<ApiResponse<{ group?: any, chat_id?: number }>> {
         try {
             const response = await this.api.post('/api/create-group/', formData, {
                 headers: {

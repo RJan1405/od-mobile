@@ -12,6 +12,7 @@ import {
     Platform,
     Alert,
 } from 'react-native';
+import FastImage from 'react-native-fast-image';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -25,7 +26,7 @@ import { formatDistanceToNow } from 'date-fns';
 import NotificationDropdown from '@/components/NotificationDropdown';
 import CreateGroupModal from '@/components/CreateGroupModal';
 
-type TabType = 'private' | 'public' | 'groups';
+type TabType = 'private' | 'public';
 
 interface UserWithStories {
     user: User;
@@ -47,6 +48,7 @@ export default function HomeScreen() {
     const [storiesData, setStoriesData] = useState<UserWithStories[]>([]);
     const [createGroupVisible, setCreateGroupVisible] = useState(false);
     const [privateChatIds, setPrivateChatIds] = useState<number[]>([]);
+    const [searchQuery, setSearchQuery] = useState('');
 
     // Refresh data when screen is focused
     useFocusEffect(
@@ -270,19 +272,30 @@ export default function HomeScreen() {
     };
 
     const filteredChats = chats.filter(chat => {
-        if (activeTab === 'groups') return chat.chat_type === 'group';
-
+        let isTabMatch = false;
         const isPrivateList = privateChatIds.includes(chat.id);
+        
+        if (activeTab === 'private') {
+            isTabMatch = isPrivateList;
+        } else if (activeTab === 'public') {
+            isTabMatch = !isPrivateList;
+        }
 
-        if (activeTab === 'private') return chat.chat_type === 'private' && isPrivateList;
-        if (activeTab === 'public') return chat.chat_type === 'private' && !isPrivateList;
+        if (!isTabMatch) return false;
+
+        if (searchQuery.trim() !== '') {
+            const q = searchQuery.toLowerCase();
+            const otherUser = chat.chat_type === 'private' ? chat.participants.find(p => p.id !== user?.id) : null;
+            const chatName = chat.chat_type === 'group' ? chat.name : (otherUser?.full_name || otherUser?.username || 'Unknown');
+            if (!chatName?.toLowerCase().includes(q)) {
+                return false;
+            }
+        }
 
         return true;
     });
 
     const handleLongPressChat = (chat: Chat) => {
-        if (chat.chat_type === 'group') return;
-
         const isCurrentlyPrivate = privateChatIds.includes(chat.id);
         const title = isCurrentlyPrivate ? "Move to Public" : "Move to Private";
         const message = isCurrentlyPrivate
@@ -437,7 +450,7 @@ export default function HomeScreen() {
         );
     };
 
-    const ListHeader = () => (
+    const listHeaderContent = (
         <View style={{ backgroundColor: colors.surface }}>
             {/* Stories */}
             {storiesData.length > 0 && (
@@ -459,6 +472,8 @@ export default function HomeScreen() {
                         style={[styles.searchInput, { color: colors.text }]}
                         placeholder="Search chats..."
                         placeholderTextColor={colors.textSecondary}
+                        value={searchQuery}
+                        onChangeText={setSearchQuery}
                     />
                 </View>
             </View>
@@ -482,14 +497,6 @@ export default function HomeScreen() {
                             Public
                         </Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.tab, activeTab === 'groups' && { backgroundColor: colors.primary }]}
-                        onPress={() => setActiveTab('groups')}
-                    >
-                        <Text style={[styles.tabText, { color: activeTab === 'groups' ? '#FFFFFF' : colors.textSecondary }]}>
-                            Groups
-                        </Text>
-                    </TouchableOpacity>
                 </View>
             </View>
         </View>
@@ -503,7 +510,7 @@ export default function HomeScreen() {
                 <View style={styles.headerIcons}>
                     <TouchableOpacity
                         style={styles.bellButton}
-                        onPress={() => navigation.navigate('Notifications' as never)}
+                        onPress={() => setShowNotifications(prev => !prev)}
                     >
                         <Icon name="notifications" size={26} color={colors.textSecondary} />
                         {unreadNotificationsCount > 0 && (
@@ -515,8 +522,12 @@ export default function HomeScreen() {
                         )}
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => navigation.navigate('MyProfile' as never)}>
-                        <Image
-                            source={{ uri: user?.profile_picture_url || 'https://via.placeholder.com/40' }}
+                        <FastImage
+                            source={{ 
+                                uri: user?.profile_picture_url || 'https://via.placeholder.com/40',
+                                priority: FastImage.priority.high,
+                                cache: FastImage.cacheControl.immutable,
+                            }}
                             style={styles.headerAvatar}
                         />
                     </TouchableOpacity>
@@ -538,7 +549,7 @@ export default function HomeScreen() {
                 data={filteredChats}
                 keyExtractor={(item) => item.id.toString()}
                 renderItem={renderChatItem}
-                ListHeaderComponent={ListHeader}
+                ListHeaderComponent={listHeaderContent}
                 refreshControl={
                     <RefreshControl
                         refreshing={isRefreshing}
