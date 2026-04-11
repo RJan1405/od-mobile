@@ -16,6 +16,7 @@ import {
     FlatList,
     NativeScrollEvent,
     NativeSyntheticEvent,
+    Keyboard,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -48,7 +49,98 @@ export default function StoryViewScreen() {
     const [isPaused, setIsPaused] = useState(false);
     const [isMuted, setIsMuted] = useState(false);
     const [reply, setReply] = useState('');
+    const [sendingReply, setSendingReply] = useState(false);
+    const keyboardHeight = useRef(new Animated.Value(0)).current;
+
+    // Handle pausable logic for progress bar globally
+    useEffect(() => {
+        const keyboardWillShowListener = Keyboard.addListener(
+            Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+            (e) => {
+                setIsPaused(true);
+                Animated.spring(keyboardHeight, {
+                    toValue: e.endCoordinates ? e.endCoordinates.height : 0,
+                    useNativeDriver: false,
+                    bounciness: 0,
+                }).start();
+            }
+        );
+        const keyboardWillHideListener = Keyboard.addListener(
+            Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+            () => {
+                setIsPaused(false);
+                Animated.spring(keyboardHeight, {
+                    toValue: 0,
+                    useNativeDriver: false,
+                    bounciness: 0,
+                }).start();
+            }
+        );
+        return () => {
+            keyboardWillShowListener.remove();
+            keyboardWillHideListener.remove();
+        };
+    }, []);
+
+    const handleSendReply = async () => {
+        if (!reply.trim() || sendingReply) return;
+
+        setSendingReply(true);
+        try {
+            const currentGroup = allStoryGroups[currentUserIndex];
+            if (!currentGroup) return;
+            const currentStory = currentGroup.stories[currentStoryIndex];
+            if (!currentStory) return;
+
+            const response = await api.addStoryReply(currentStory.id, reply.trim());
+            if (response.success) {
+                setReply('');
+                // Unpause manually in case keyboard hide didn't trigger fast enough
+                setIsPaused(false);
+                Keyboard.dismiss();
+            } else {
+                console.error("Failed to send reply:", response.error);
+            }
+        } catch (error) {
+            console.error("Failed to send reply catch:", error);
+        } finally {
+            setSendingReply(false);
+        }
+    };
     const [isLiked, setIsLiked] = useState(false);
+
+    const toggleLike = async () => {
+        const currentGroup = allStoryGroups[currentUserIndex];
+        if (!currentGroup) return;
+        const currentStory = currentGroup.stories[currentStoryIndex];
+        if (!currentStory) return;
+
+        const previousLikedState = isLiked;
+        const newLikedState = !isLiked;
+
+        // Optimistic UI toggle
+        setIsLiked(newLikedState);
+        currentStory.is_liked = newLikedState;
+
+        try {
+            const response = await api.toggleStoryLike(currentStory.id);
+            if (response.success) {
+                // Sync with absolute server truth to prevent desyncs
+                setIsLiked(response.is_liked);
+                currentStory.is_liked = response.is_liked;
+            } else {
+                // Revert on failure
+                setIsLiked(previousLikedState);
+                currentStory.is_liked = previousLikedState;
+                console.error("Failed to toggle like:", response.error);
+            }
+        } catch (error) {
+            // Revert on failure
+            setIsLiked(previousLikedState);
+            currentStory.is_liked = previousLikedState;
+            console.error("Error toggling like:", error);
+        }
+    };
 
     const progress = useRef(new Animated.Value(0)).current;
     const progressAnimation = useRef<Animated.CompositeAnimation | null>(null);
@@ -154,23 +246,19 @@ export default function StoryViewScreen() {
                     }
                 }
             }, 100);
-            startProgress();
             return () => {
                 clearTimeout(timeoutId);
-                if (progressAnimation.current) {
-                    progressAnimation.current.stop();
-                }
             };
         }
-        return () => {
-            if (progressAnimation.current) {
-                progressAnimation.current.stop();
-            }
-        };
     }, [allStoryGroups, isLoading]);
 
     useEffect(() => {
         if (allStoryGroups.length > 0 && !isLoading && isMounted.current) {
+            const currentGroup = allStoryGroups[currentUserIndex];
+            const currentStory = currentGroup?.stories[currentStoryIndex];
+            if (currentStory) {
+                setIsLiked(currentStory.is_liked || false);
+            }
             startProgress();
         }
         return () => {
@@ -178,7 +266,7 @@ export default function StoryViewScreen() {
                 progressAnimation.current.stop();
             }
         };
-    }, [currentUserIndex, currentStoryIndex]);
+    }, [currentUserIndex, currentStoryIndex, allStoryGroups, isLoading]);
 
     const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
         const offsetX = event.nativeEvent.contentOffset.x;
@@ -204,7 +292,10 @@ export default function StoryViewScreen() {
 
         progressAnimation.current.start(({ finished }) => {
             if (finished && isMounted.current) {
-                nextStory();
+                // If it finished but we are paused, don't trigger nextStory yet
+                if (!isPaused) {
+                    nextStory();
+                }
             }
         });
     };
@@ -275,6 +366,9 @@ export default function StoryViewScreen() {
     };
 
     const handlePress = (evt: any) => {
+        // Don't register taps if we are replying
+        if (isPaused) return;
+
         const x = evt.nativeEvent.locationX;
         if (x < width * 0.3) {
             previousStory();
@@ -283,28 +377,42 @@ export default function StoryViewScreen() {
         }
     };
 
+    // Handle pausable logic for progress bar globally
+    useEffect(() => {
+        if (!isMounted.current) return;
+
+        if (isPaused) {
+            if (progressAnimation.current) {
+                progressAnimation.current.stop();
+            }
+        } else {
+            // Resume progress from where it stopped
+            const currentProgressValue = typeof (progress as any)._value === 'number' ? (progress as any)._value : 0;
+            // Prevent restarting an already finished animation
+            if (currentProgressValue >= 1) return;
+
+            const remainingDuration = (1 - currentProgressValue) * STORY_DURATION;
+            progressAnimation.current = Animated.timing(progress, {
+                toValue: 1,
+                duration: remainingDuration,
+                useNativeDriver: false,
+            });
+            progressAnimation.current.start(({ finished }) => {
+                if (finished && isMounted.current) {
+                    if (!isPaused) {
+                        nextStory();
+                    }
+                }
+            });
+        }
+    }, [isPaused]);
+
     const handleLongPressStart = () => {
         setIsPaused(true);
-        if (progressAnimation.current) {
-            progressAnimation.current.stop();
-        }
     };
 
     const handleLongPressEnd = () => {
         setIsPaused(false);
-        // Resume progress
-        const currentProgressValue = (progress as any)._value;
-        const remainingDuration = (1 - currentProgressValue) * STORY_DURATION;
-        progressAnimation.current = Animated.timing(progress, {
-            toValue: 1,
-            duration: remainingDuration,
-            useNativeDriver: false,
-        });
-        progressAnimation.current.start(({ finished }) => {
-            if (finished) {
-                nextStory();
-            }
-        });
     };
 
     if (isLoading) {
@@ -442,34 +550,58 @@ export default function StoryViewScreen() {
                         </View>
                     </SafeAreaView>
 
-                    <View style={styles.interactionLayer}>
-                        <View style={styles.viewCountContainer}>
-                            <Icon name="eye-outline" size={16} color="#FFF" />
-                            <Text style={styles.viewCountText}>{currentStory.view_count || 0} views</Text>
-                        </View>
-
-                        <View style={styles.footer}>
-                            <View style={styles.inputWrap}>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Reply to story..."
-                                    placeholderTextColor="#CCC"
-                                    value={reply}
-                                    onChangeText={setReply}
-                                />
+                    <Animated.View style={[
+                        styles.interactionLayer,
+                        { transform: [{ translateY: Animated.multiply(keyboardHeight, -1) }] }
+                    ]}>
+                        {currentUser?.id === storyUser.id && (
+                            <View style={styles.viewCountContainer}>
+                                <Icon name="eye-outline" size={16} color="#FFF" />
+                                <Text style={styles.viewCountText}>{currentStory.view_count || 0} views</Text>
                             </View>
-                            <TouchableOpacity
-                                style={styles.heartBtn}
-                                onPress={() => setIsLiked(!isLiked)}
-                            >
-                                <Icon
-                                    name={isLiked ? "heart" : "heart-outline"}
-                                    size={28}
-                                    color={isLiked ? "#EF4444" : "#FFF"}
-                                />
-                            </TouchableOpacity>
-                        </View>
-                    </View>
+                        )}
+
+                        {currentUser?.id !== storyUser.id && (
+                            <View style={styles.footer}>
+                                <View style={styles.inputWrap}>
+                                    <TextInput
+                                        style={styles.input}
+                                        placeholder="Reply to story..."
+                                        placeholderTextColor="#CCC"
+                                        value={reply}
+                                        onChangeText={setReply}
+                                        onSubmitEditing={handleSendReply}
+                                        returnKeyType="send"
+                                        onFocus={() => setIsPaused(true)}
+                                        onBlur={() => setIsPaused(false)}
+                                    />
+                                    {reply.trim().length > 0 && (
+                                        <TouchableOpacity
+                                            style={styles.sendReplyBtn}
+                                            onPress={handleSendReply}
+                                            disabled={sendingReply}
+                                        >
+                                            {sendingReply ? (
+                                                <ActivityIndicator size="small" color="#0ea5e9" />
+                                            ) : (
+                                                <Icon name="send" size={20} color="#0ea5e9" />
+                                            )}
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+                                <TouchableOpacity
+                                    style={styles.heartBtn}
+                                    onPress={toggleLike}
+                                >
+                                    <Icon
+                                        name={isLiked ? "heart" : "heart-outline"}
+                                        size={28}
+                                        color={isLiked ? "#EF4444" : "#FFF"}
+                                    />
+                                </TouchableOpacity>
+                            </View>
+                        )}
+                    </Animated.View>
                 </TouchableOpacity>
             </View>
         );
@@ -484,6 +616,7 @@ export default function StoryViewScreen() {
             horizontal
             pagingEnabled
             showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
             onMomentumScrollEnd={handleScroll}
             scrollEventThrottle={16}
             getItemLayout={(data, index) => ({
@@ -630,17 +763,25 @@ const styles = StyleSheet.create({
     },
     inputWrap: {
         flex: 1,
+        flexDirection: 'row',
         height: 50,
         borderRadius: 25,
         backgroundColor: 'rgba(255,255,255,0.2)',
         paddingHorizontal: 20,
-        justifyContent: 'center',
+        alignItems: 'center',
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.3)',
     },
     input: {
+        flex: 1,
         color: '#FFF',
         fontSize: 15,
+        height: '100%',
+    },
+    sendReplyBtn: {
+        padding: 5,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     heartBtn: {
         width: 50,

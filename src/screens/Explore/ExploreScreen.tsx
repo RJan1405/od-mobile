@@ -19,6 +19,7 @@ import {
     Alert,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
+import MIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Video from 'react-native-video';
 import { WebView } from 'react-native-webview';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -1254,7 +1255,7 @@ export default function ExploreScreen() {
                     }}
                 >
                     <View style={styles.searchResultHeader}>
-                        <Icon name="videocam" size={16} color={colors.primary} />
+                        <MIcon name="movie" size={16} color={colors.primary} />
                         <Text style={[styles.resultType, { color: colors.textSecondary }]}>Omzo</Text>
                     </View>
                     <Text style={[styles.resultContent, { color: colors.text }]} numberOfLines={2}>
@@ -1444,33 +1445,12 @@ export default function ExploreScreen() {
                             style={styles.actionBtn}
                             onPress={(e) => {
                                 e.stopPropagation();
-                                const key = `omzo_${item.id}`;
-                                const currentlyDisliked = !!(interactions[key]?.is_disliked ?? item.is_disliked);
-                                handleOmzoDislike(String(item.id), currentlyDisliked);
+                                const currentCount = interactions[`omzo_${item.id}`]?.comment_count ?? (item.comments || 0);
+                                openOmzoComments(String(item.id), currentCount);
                             }}
                             activeOpacity={0.7}
                             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                         >
-                            <Icon
-                                name={(interactions[`omzo_${item.id}`]?.is_disliked ?? item.is_disliked) ? 'thumbs-down' : 'thumbs-down-outline'}
-                                size={22}
-                                color={(interactions[`omzo_${item.id}`]?.is_disliked ?? item.is_disliked) ? colors.primary : colors.textSecondary}
-                            />
-                            <Text style={[styles.actionCount, { color: colors.textSecondary }, (interactions[`omzo_${item.id}`]?.is_disliked ?? item.is_disliked) && { color: colors.primary }]}>
-                                {formatCount(interactions[`omzo_${item.id}`]?.dislike_count ?? (item.dislikes || 0))}
-                            </Text>
-                        </TouchableOpacity>
-
-                            <TouchableOpacity
-                                style={styles.actionBtn}
-                                onPress={(e) => {
-                                    e.stopPropagation();
-                                    const currentCount = interactions[`omzo_${item.id}`]?.comment_count ?? (item.comments || 0);
-                                    openOmzoComments(String(item.id), currentCount);
-                                }}
-                                activeOpacity={0.7}
-                                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-                            >
                             <Icon name="chatbubble-outline" size={20} color={colors.textSecondary} />
                             <Text style={[styles.actionCount, { color: colors.textSecondary }]}>
                                 {formatCount(interactions[`omzo_${item.id}`]?.comment_count ?? (item.comments || 0))}
@@ -1496,6 +1476,23 @@ export default function ExploreScreen() {
                             </Text>
                         </TouchableOpacity>
 
+                        <TouchableOpacity
+                            style={styles.actionBtn}
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                setShareContent({
+                                    id: parseInt(item.id),
+                                    type: 'omzo',
+                                    url: `https://odnix.com/omzo/${item.id}/`
+                                });
+                                setIsShareVisible(true);
+                            }}
+                            activeOpacity={0.7}
+                            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                        >
+                            <Icon name="paper-plane-outline" size={20} color={colors.textSecondary} />
+                        </TouchableOpacity>
+
                         <View style={{ flex: 1 }} />
 
                         <TouchableOpacity
@@ -1514,23 +1511,6 @@ export default function ExploreScreen() {
                                 size={22}
                                 color={(interactions[`omzo_${item.id}`]?.is_saved ?? item.isSaved) ? colors.primary : colors.textSecondary}
                             />
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            style={styles.actionIconBtn}
-                            onPress={(e) => {
-                                e.stopPropagation();
-                                setShareContent({
-                                    id: parseInt(item.id),
-                                    type: 'omzo',
-                                    url: `https://odnix.com/omzo/${item.id}/`
-                                });
-                                setIsShareVisible(true);
-                            }}
-                            activeOpacity={0.7}
-                            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-                        >
-                            <Icon name="paper-plane-outline" size={20} color={colors.textSecondary} />
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -1623,24 +1603,6 @@ export default function ExploreScreen() {
                             style={styles.cardAction}
                             onPress={(e) => {
                                 e.stopPropagation();
-                                const key = `scribe_${item.id}`;
-                                const currentlyDisliked = !!(interactions[key]?.is_disliked ?? item.is_disliked);
-                                handleScribeDislike(String(item.id), currentlyDisliked);
-                            }}
-                        >
-                            <Icon
-                                name={(interactions[`scribe_${item.id}`]?.is_disliked ?? item.is_disliked) ? "thumbs-down" : "thumbs-down-outline"}
-                                size={18}
-                                color={(interactions[`scribe_${item.id}`]?.is_disliked ?? item.is_disliked) ? colors.primary : colors.textSecondary}
-                            />
-                            <Text style={[styles.cardStatText, { color: (interactions[`scribe_${item.id}`]?.is_disliked ?? item.is_disliked) ? colors.primary : colors.textSecondary }]}>
-                                {formatCount(interactions[`scribe_${item.id}`]?.dislike_count ?? (item.dislikes || 0))}
-                            </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={styles.cardAction}
-                            onPress={(e) => {
-                                e.stopPropagation();
                                 openScribeComments(item.id, item.comments || 0);
                             }}
                         >
@@ -1664,6 +1626,20 @@ export default function ExploreScreen() {
                             <Text style={[styles.cardStatText, { color: (repostStates[`scribe_${item.id}`]?.is_reposted) ? "#10B981" : colors.textSecondary }]}>
                                 {repostStates[`scribe_${item.id}`]?.repost_count ?? (item.shares || 0)}
                             </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={styles.cardAction}
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                setShareContent({
+                                    id: parseInt(item.id),
+                                    type: 'scribe',
+                                    url: `https://odnix.com/scribe/${item.id}/`
+                                });
+                                setIsShareVisible(true);
+                            }}
+                        >
+                            <Icon name="paper-plane-outline" size={18} color={colors.textSecondary} />
                         </TouchableOpacity>
                         <TouchableOpacity
                             style={styles.cardAction}
@@ -1762,24 +1738,7 @@ export default function ExploreScreen() {
                             </TouchableOpacity>
 
                             {/* Dislike Icon for Masonry Grid */}
-                            <TouchableOpacity
-                                style={styles.omzoStatItem}
-                                onPress={(e) => {
-                                    e.stopPropagation();
-                                    const key = `omzo_${item.id}`;
-                                    const currentlyDisliked = !!(interactions[key]?.is_disliked ?? item.is_disliked);
-                                    handleOmzoDislike(String(item.id), currentlyDisliked);
-                                }}
-                            >
-                                <Icon
-                                    name={(interactions[`omzo_${item.id}`]?.is_disliked ?? item.is_disliked) ? "thumbs-down" : "thumbs-down-outline"}
-                                    size={20}
-                                    color={(interactions[`omzo_${item.id}`]?.is_disliked ?? item.is_disliked) ? colors.primary : colors.textSecondary}
-                                />
-                                <Text style={[styles.omzoStatText, { color: colors.textSecondary }, (interactions[`omzo_${item.id}`]?.is_disliked ?? item.is_disliked) && { color: colors.primary }]}>
-                                    {formatCount(interactions[`omzo_${item.id}`]?.dislike_count ?? (item.dislikes || 0))}
-                                </Text>
-                            </TouchableOpacity>
+
                             <TouchableOpacity
                                 style={styles.omzoStatItem}
                                 onPress={(e) => {
@@ -1804,9 +1763,23 @@ export default function ExploreScreen() {
                                     size={22}
                                     color={(interactions[`omzo_${item.id}`]?.is_reposted ?? item.isReposted) ? "#10B981" : colors.textSecondary}
                                 />
-                                <Text style={[styles.omzoStatText, { color: colors.textSecondary }, (interactions[`omzo_${item.id}`]?.is_reposted ?? item.isReposted) && { color: "#10B981" }]}>
+                                <Text style={[styles.omzoStatText, { color: colors.textSecondary }, (interactions[`omzo_${item.id}`]?.is_reposted ?? item.is_reposted) && { color: "#10B981" }]}>
                                     {formatCount(interactions[`omzo_${item.id}`]?.repost_count ?? (item.reposts || 0))}
                                 </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.omzoStatItem}
+                                onPress={(e) => {
+                                    e.stopPropagation();
+                                    setShareContent({
+                                        id: parseInt(item.id),
+                                        type: 'omzo',
+                                        url: `https://odnix.com/omzo/${item.id}/`
+                                    });
+                                    setIsShareVisible(true);
+                                }}
+                            >
+                                <Icon name="paper-plane-outline" size={20} color={colors.textSecondary} />
                             </TouchableOpacity>
 
                             <View style={{ flex: 1 }} />
@@ -1825,21 +1798,6 @@ export default function ExploreScreen() {
                                     size={22}
                                     color={(interactions[`omzo_${item.id}`]?.is_saved ?? item.isSaved) ? colors.primary : colors.textSecondary}
                                 />
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                                style={styles.omzoStatItemIcon}
-                                onPress={(e) => {
-                                    e.stopPropagation();
-                                    setShareContent({
-                                        id: parseInt(item.id),
-                                        type: 'omzo',
-                                        url: `https://odnix.com/omzo/${item.id}/`
-                                    });
-                                    setIsShareVisible(true);
-                                }}
-                            >
-                                <Icon name="paper-plane-outline" size={20} color={colors.textSecondary} />
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -2068,7 +2026,9 @@ export default function ExploreScreen() {
                                                                 <Icon name="code-slash" size={14} color={colors.primary} />
                                                             </View>
                                                             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.codeScroll}>
-                                                                <Text style={[styles.codeText, { color: colors.text }]}>{selectedScribe.code_html.trimEnd()}</Text>
+                                                                <View>
+                                                                    <Text style={[styles.codeText, { color: colors.text }]}>{selectedScribe.code_html.trimEnd()}</Text>
+                                                                </View>
                                                             </ScrollView>
                                                         </View>
                                                     ) : null}
@@ -2080,7 +2040,9 @@ export default function ExploreScreen() {
                                                                 <Icon name="color-palette-outline" size={14} color="#10B981" />
                                                             </View>
                                                             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.codeScroll}>
-                                                                <Text style={[styles.codeText, { color: colors.text }]}>{selectedScribe.code_css.trimEnd()}</Text>
+                                                                <View>
+                                                                    <Text style={[styles.codeText, { color: colors.text }]}>{selectedScribe.code_css.trimEnd()}</Text>
+                                                                </View>
                                                             </ScrollView>
                                                         </View>
                                                     ) : null}
@@ -2092,7 +2054,9 @@ export default function ExploreScreen() {
                                                                 <Icon name="logo-javascript" size={14} color="#F59E0B" />
                                                             </View>
                                                             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.codeScroll}>
-                                                                <Text style={[styles.codeText, { color: colors.text }]}>{selectedScribe.code_js.trimEnd()}</Text>
+                                                                <View>
+                                                                    <Text style={[styles.codeText, { color: colors.text }]}>{selectedScribe.code_js.trimEnd()}</Text>
+                                                                </View>
                                                             </ScrollView>
                                                         </View>
                                                     ) : null}
@@ -2135,14 +2099,6 @@ export default function ExploreScreen() {
                                             Reposts
                                         </Text>
                                     </View>
-                                    <View style={styles.modalStatItem}>
-                                        <Text style={[styles.modalStatNumber, { color: colors.text }]}>
-                                            {modalDislikeCount}
-                                        </Text>
-                                        <Text style={[styles.modalStatLabel, { color: colors.textSecondary }]}>
-                                            Dislikes
-                                        </Text>
-                                    </View>
                                 </View>
 
                                 {/* Action Bar - Fixed */}
@@ -2164,13 +2120,6 @@ export default function ExploreScreen() {
                                             color={(repostStates[`scribe_${selectedScribe.id}`]?.is_reposted) ? "#10B981" : colors.textSecondary}
                                         />
                                     </TouchableOpacity>
-                                    <TouchableOpacity style={styles.modalActionButton} onPress={handleModalSave}>
-                                        <Icon
-                                            name={modalSaved ? "bookmark" : "bookmark-outline"}
-                                            size={26}
-                                            color={modalSaved ? colors.primary : colors.textSecondary}
-                                        />
-                                    </TouchableOpacity>
                                     <TouchableOpacity style={styles.modalActionButton} onPress={() => {
                                         setShareContent({
                                             id: parseInt(selectedScribe.id),
@@ -2181,11 +2130,11 @@ export default function ExploreScreen() {
                                     }}>
                                         <Icon name="paper-plane-outline" size={26} color={colors.textSecondary} />
                                     </TouchableOpacity>
-                                    <TouchableOpacity style={styles.modalActionButton} onPress={handleModalDislike}>
+                                    <TouchableOpacity style={styles.modalActionButton} onPress={handleModalSave}>
                                         <Icon
-                                            name={modalDisliked ? "thumbs-down" : "thumbs-down-outline"}
+                                            name={modalSaved ? "bookmark" : "bookmark-outline"}
                                             size={26}
-                                            color={modalDisliked ? "#F59E0B" : colors.textSecondary}
+                                            color={modalSaved ? colors.primary : colors.textSecondary}
                                         />
                                     </TouchableOpacity>
                                 </View>

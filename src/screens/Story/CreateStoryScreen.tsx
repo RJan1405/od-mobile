@@ -146,13 +146,15 @@ export default function CreateStoryScreen() {
                 <View style={styles.tools}>
                     {storyType === 'text' && (
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.colorScroll}>
-                            {BG_COLORS.map((color) => (
-                                <TouchableOpacity
-                                    key={color}
-                                    style={[styles.colorOption, { backgroundColor: color, borderColor: bgColor === color ? '#FFF' : 'transparent' }]}
-                                    onPress={() => setBgColor(color)}
-                                />
-                            ))}
+                            <View style={{ flexDirection: 'row' }}>
+                                {BG_COLORS.map((color) => (
+                                    <TouchableOpacity
+                                        key={color}
+                                        style={[styles.colorOption, { backgroundColor: color, borderColor: bgColor === color ? '#FFF' : 'transparent' }]}
+                                        onPress={() => setBgColor(color)}
+                                    />
+                                ))}
+                            </View>
                         </ScrollView>
                     )}
 

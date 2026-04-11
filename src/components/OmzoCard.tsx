@@ -123,7 +123,7 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
         // Optimistic update
         const newIsLiked = !isLiked;
         const newLikeCount = isLiked ? Math.max(0, likeCount - 1) : likeCount + 1;
-        
+
         // If we are liking, we can't be disliking
         const newIsDisliked = newIsLiked ? false : isDisliked;
         const newDislikeCount = (isLiked === false && isDisliked === true) ? Math.max(0, dislikeCount - 1) : dislikeCount;
@@ -160,7 +160,7 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
         // Optimistic update
         const newIsDisliked = !isDisliked;
         const newDislikeCount = isDisliked ? Math.max(0, dislikeCount - 1) : dislikeCount + 1;
-        
+
         // If we are disliking, we can't be liking
         const newIsLiked = newIsDisliked ? false : isLiked;
         const newLikeCount = (isDisliked === false && isLiked === true) ? Math.max(0, likeCount - 1) : likeCount;
@@ -458,35 +458,12 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
                     <Text style={styles.actionCount}>{formatCount(likeCount)}</Text>
                 </TouchableOpacity>
 
-                {/* Dislike */}
-                <TouchableOpacity style={styles.actionButton} onPress={handleDislike} activeOpacity={0.7}>
-                    <View style={styles.actionIconContainer}>
-                        <Icon
-                            name={isDisliked ? 'thumbs-down' : 'thumbs-down-outline'}
-                            size={26}
-                            color={isDisliked ? '#6366F1' : '#FFFFFF'}
-                        />
-                    </View>
-                    <Text style={styles.actionCount}>{formatCount(dislikeCount)}</Text>
-                </TouchableOpacity>
-
                 {/* Comment */}
                 <TouchableOpacity style={styles.actionButton} onPress={handleComments} activeOpacity={0.7}>
                     <View style={styles.actionIconContainer}>
                         <Icon name="chatbubble-outline" size={26} color="#FFFFFF" />
                     </View>
                     <Text style={styles.actionCount}>{formatCount(commentCount)}</Text>
-                </TouchableOpacity>
-
-                {/* Bookmark */}
-                <TouchableOpacity style={styles.actionButton} onPress={handleToggleSave} activeOpacity={0.7}>
-                    <View style={styles.actionIconContainer}>
-                        <Icon
-                            name={isSaved ? 'bookmark' : 'bookmark-outline'}
-                            size={24}
-                            color={isSaved ? '#FFFFFF' : '#FFFFFF'}
-                        />
-                    </View>
                 </TouchableOpacity>
 
                 {/* Repost */}
@@ -510,6 +487,17 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
                 <TouchableOpacity style={styles.actionButton} onPress={handleShare} activeOpacity={0.7}>
                     <View style={styles.actionIconContainer}>
                         <Icon name="paper-plane-outline" size={24} color="#FFFFFF" style={{ marginLeft: -2, marginTop: 2 }} />
+                    </View>
+                </TouchableOpacity>
+
+                {/* Bookmark */}
+                <TouchableOpacity style={styles.actionButton} onPress={handleToggleSave} activeOpacity={0.7}>
+                    <View style={styles.actionIconContainer}>
+                        <Icon
+                            name={isSaved ? 'bookmark' : 'bookmark-outline'}
+                            size={24}
+                            color={isSaved ? '#FFFFFF' : '#FFFFFF'}
+                        />
                     </View>
                 </TouchableOpacity>
             </View>

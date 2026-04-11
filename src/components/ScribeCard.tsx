@@ -679,18 +679,6 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
                     </Text>
                 </TouchableOpacity>
 
-                {/* Dislike */}
-                <TouchableOpacity style={styles.actionBtn} onPress={handleDislike} activeOpacity={0.7}>
-                    <Icon
-                        name={isDisliked ? 'thumbs-down' : 'thumbs-down-outline'}
-                        size={22}
-                        color={isDisliked ? colors.primary : colors.textSecondary}
-                    />
-                    <Text style={[styles.actionCount, { color: colors.textSecondary }, isDisliked && { color: colors.primary }]}>
-                        {formatCount(dislikeCount)}
-                    </Text>
-                </TouchableOpacity>
-
                 {/* Comment */}
                 <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7} onPress={onCommentPress || onPress}>
                     <Icon name="chatbubble-outline" size={20} color={colors.textSecondary} />
@@ -711,6 +699,15 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
                     </Text>
                 </TouchableOpacity>
 
+                {/* Share / Send */}
+                <TouchableOpacity
+                    style={styles.actionBtn}
+                    activeOpacity={0.7}
+                    onPress={() => setShowShareSheet(true)}
+                >
+                    <Icon name="paper-plane-outline" size={20} color={colors.textSecondary} />
+                </TouchableOpacity>
+
                 <View style={{ flex: 1 }} />
 
                 {/* Bookmark */}
@@ -720,15 +717,6 @@ export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPre
                         size={22}
                         color={isSaved ? colors.primary : colors.textSecondary}
                     />
-                </TouchableOpacity>
-
-                {/* Share / Send */}
-                <TouchableOpacity
-                    style={styles.actionIconBtn}
-                    activeOpacity={0.7}
-                    onPress={() => setShowShareSheet(true)}
-                >
-                    <Icon name="paper-plane-outline" size={20} color={colors.textSecondary} />
                 </TouchableOpacity>
             </View>
 

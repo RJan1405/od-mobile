@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { View, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
+import MIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useAuthStore } from '@/stores/authStore';
 import { useThemeStore } from '@/stores/themeStore';
 import CreateActionModal from '@/components/CreateActionModal';
@@ -100,6 +101,7 @@ function MainTabs() {
         <>
             <Tab.Navigator
                 screenOptions={{
+                    tabBarShowLabel: false,
                     tabBarStyle: {
                         backgroundColor: colors.surface,
                         borderTopColor: colors.border,
@@ -110,10 +112,6 @@ function MainTabs() {
                     },
                     tabBarActiveTintColor: colors.primary,
                     tabBarInactiveTintColor: colors.textSecondary,
-                    tabBarLabelStyle: {
-                        fontSize: 12,
-                        fontWeight: '600',
-                    },
                     headerStyle: {
                         backgroundColor: colors.surface,
                     },
@@ -136,7 +134,7 @@ function MainTabs() {
                     component={OmzoScreen}
                     options={{
                         tabBarIcon: ({ color, focused }) => (
-                            <Icon name={focused ? 'tv' : 'tv-outline'} size={24} color={color} />
+                            <MIcon name={focused ? 'movie' : 'movie-outline'} size={24} color={color} />
                         ),
                         headerShown: false,
                     }}

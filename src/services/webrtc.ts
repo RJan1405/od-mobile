@@ -13,6 +13,7 @@ class WebRTCService {
     private remoteStream: MediaStream | null = null;
     private iceCandidatesQueue: any[] = [];
     private hasProcessedOffer = false;
+    public isConnected = false;
     private configuration = {
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
@@ -51,9 +52,7 @@ class WebRTCService {
     }
 
     createPeerConnection() {
-        if (this.peerConnection) {
-            this.peerConnection.close();
-        }
+        if (this.peerConnection) return; // 🔥 prevent duplicate
 
         this.peerConnection = new RTCPeerConnection(this.configuration);
 
@@ -76,6 +75,9 @@ class WebRTCService {
         this.peerConnection.onconnectionstatechange = () => {
             if (this.peerConnection) {
                 console.log('[WebRTC] Peer Connection State:', this.peerConnection.connectionState);
+                if (this.peerConnection.connectionState === 'connected') {
+                    this.isConnected = true;
+                }
             }
         };
 
@@ -156,45 +158,64 @@ class WebRTCService {
             return;
         }
 
-        console.log('[WebRTC] Handling offer...');
-        this.createPeerConnection();
-        this.hasProcessedOffer = true;
+        try {
+            console.log('[WebRTC] Handling offer...');
+            this.createPeerConnection();
+            this.hasProcessedOffer = true;
 
-        // Check if sdp is a string (legacy/mobile direct) or object (web/new)
-        const remoteSdp = typeof sdp === 'string' ? { type: 'offer', sdp } : sdp;
+            // Check if sdp is a string (legacy/mobile direct) or object (web/new)
+            const remoteSdp = typeof sdp === 'string' ? { type: 'offer', sdp } : sdp;
 
-        await this.peerConnection.setRemoteDescription(
-            new RTCSessionDescription(remoteSdp as any)
-        );
-
-        // Process queued ice candidates
-        this.processQueuedCandidates();
-
-        const answer = await this.peerConnection.createAnswer();
-        await this.peerConnection.setLocalDescription(answer);
-
-        if (this.signalSender) {
-            this.signalSender({
-                type: 'webrtc.answer',
-                sdp: answer,
-            });
-        }
-    }
-
-    async handleAnswer(sdp: any) {
-        console.log('[WebRTC] Handling answer...');
-        if (this.peerConnection) {
-            if (this.peerConnection.signalingState !== 'have-local-offer') {
-                console.log('[WebRTC] Skipping Answer because signaling state is', this.peerConnection.signalingState);
-                return;
-            }
-            const remoteSdp = typeof sdp === 'string' ? { type: 'answer', sdp } : sdp;
+            console.log('[WebRTC] Setting remote description...');
             await this.peerConnection.setRemoteDescription(
                 new RTCSessionDescription(remoteSdp as any)
             );
 
             // Process queued ice candidates
             this.processQueuedCandidates();
+
+            console.log('[WebRTC] Creating answer...');
+            const answer = await this.peerConnection.createAnswer();
+            console.log('[WebRTC] Setting local description (answer)...');
+            await this.peerConnection.setLocalDescription(answer);
+
+            if (this.signalSender) {
+                console.log('[WebRTC] Sending answer signal');
+                this.signalSender({
+                    type: 'webrtc.answer',
+                    sdp: answer,
+                });
+            } else {
+                console.warn('[WebRTC] Cannot send answer: signalSender is null');
+            }
+        } catch (error) {
+            console.error('[WebRTC] Error in handleOffer:', error);
+            // Reset processed flag so it can be retried if possible
+            this.hasProcessedOffer = false;
+        }
+    }
+
+    async handleAnswer(sdp: any) {
+        try {
+            console.log('[WebRTC] Handling answer...');
+            if (this.peerConnection) {
+                if (this.peerConnection.signalingState !== 'have-local-offer') {
+                    console.log('[WebRTC] Skipping Answer because signaling state is', this.peerConnection.signalingState);
+                    return;
+                }
+                const remoteSdp = typeof sdp === 'string' ? { type: 'answer', sdp } : sdp;
+                console.log('[WebRTC] Setting remote description (answer)...');
+                await this.peerConnection.setRemoteDescription(
+                    new RTCSessionDescription(remoteSdp as any)
+                );
+
+                // Process queued ice candidates
+                this.processQueuedCandidates();
+            } else {
+                console.warn('[WebRTC] handleAnswer called but peerConnection is null');
+            }
+        } catch (error) {
+            console.error('[WebRTC] Error in handleAnswer:', error);
         }
     }
 
@@ -241,6 +262,15 @@ class WebRTCService {
     }
 
     endCall() {
+        if (!this.peerConnection) return;
+
+        if (this.isConnected) {
+            console.log("Closing after connection");
+        } else {
+            console.log("Prevent early close ❌");
+            return; // 🔥 BLOCK EARLY CLOSE
+        }
+
         if (this.onCallEndCallback) {
             this.onCallEndCallback();
         }
@@ -250,7 +280,7 @@ class WebRTCService {
         }
 
         if (this.localStream) {
-            this.localStream.getTracks().forEach(track => track.stop());
+            this.localStream.getTracks().forEach((track: any) => track.stop());
             this.localStream = null;
         }
 
@@ -262,6 +292,7 @@ class WebRTCService {
         this.remoteStream = null;
         this.iceCandidatesQueue = [];
         this.hasProcessedOffer = false;
+        this.isConnected = false;
     }
 
     getLocalStream() {

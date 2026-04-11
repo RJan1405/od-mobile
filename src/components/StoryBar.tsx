@@ -54,68 +54,70 @@ export default function StoryBar() {
             style={[styles.container, { backgroundColor: colors.background }]}
             contentContainerStyle={styles.content}
         >
-            {/* Create Story */}
-            <TouchableOpacity style={styles.storyItem} onPress={handleCreateStory}>
-                <View
-                    style={[styles.createStoryGradient, { backgroundColor: colors.primary }]}
-                >
-                    {hasValidUserAvatar ? (
-                        <Image
-                            source={{ uri: userAvatarUri }}
-                            style={styles.createStoryImage}
-                        />
-                    ) : (
-                        <View style={[styles.createStoryImage, { backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' }]}>
-                            <Text style={{ color: colors.text, fontSize: 24, fontWeight: 'bold' }}>
-                                {user?.username?.[0]?.toUpperCase() || '+'}
-                            </Text>
-                        </View>
-                    )}
-                    <View style={styles.addIcon}>
-                        <Icon name="add" size={16} color="#FFFFFF" />
-                    </View>
-                </View>
-                <Text style={[styles.storyUsername, { color: colors.text }]}>
-                    Your Story
-                </Text>
-            </TouchableOpacity>
-
-            {/* Stories from following */}
-            {stories.map((story) => {
-                const storyAvatarUri = story.user.profile_picture_url || '';
-                const hasValidStoryAvatar = storyAvatarUri && storyAvatarUri !== 'null' && storyAvatarUri.length > 0 && storyAvatarUri.startsWith('http');
-
-                return (
-                    <TouchableOpacity
-                        key={story.id}
-                        style={styles.storyItem}
-                        onPress={() => handleViewStory(story)}
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+                {/* Create Story */}
+                <TouchableOpacity style={styles.storyItem} onPress={handleCreateStory}>
+                    <View
+                        style={[styles.createStoryGradient, { backgroundColor: colors.primary }]}
                     >
-                        <View
-                            style={[styles.storyGradient, { backgroundColor: colors.primary }]}
-                        >
-                            {hasValidStoryAvatar ? (
-                                <Image
-                                    source={{ uri: storyAvatarUri }}
-                                    style={styles.storyImage}
-                                />
-                            ) : (
-                                <View style={[styles.storyImage, { backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' }]}>
-                                    <Text style={{ color: colors.text, fontSize: 20, fontWeight: 'bold' }}>
-                                        {story.user.username?.[0]?.toUpperCase() || '?'}
-                                    </Text>
-                                </View>
-                            )}
+                        {hasValidUserAvatar ? (
+                            <Image
+                                source={{ uri: userAvatarUri }}
+                                style={styles.createStoryImage}
+                            />
+                        ) : (
+                            <View style={[styles.createStoryImage, { backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' }]}>
+                                <Text style={{ color: colors.text, fontSize: 24, fontWeight: 'bold' }}>
+                                    {user?.username?.[0]?.toUpperCase() || '+'}
+                                </Text>
+                            </View>
+                        )}
+                        <View style={styles.addIcon}>
+                            <Icon name="add" size={16} color="#FFFFFF" />
                         </View>
-                        <Text
-                            style={[styles.storyUsername, { color: colors.text }]}
-                            numberOfLines={1}
+                    </View>
+                    <Text style={[styles.storyUsername, { color: colors.text }]}>
+                        Your Story
+                    </Text>
+                </TouchableOpacity>
+
+                {/* Stories from following */}
+                {stories.map((story) => {
+                    const storyAvatarUri = story.user.profile_picture_url || '';
+                    const hasValidStoryAvatar = storyAvatarUri && storyAvatarUri !== 'null' && storyAvatarUri.length > 0 && storyAvatarUri.startsWith('http');
+
+                    return (
+                        <TouchableOpacity
+                            key={story.id}
+                            style={styles.storyItem}
+                            onPress={() => handleViewStory(story)}
                         >
-                            {story.user.username}
-                        </Text>
-                    </TouchableOpacity>
-                );
-            })}
+                            <View
+                                style={[styles.storyGradient, { backgroundColor: colors.primary }]}
+                            >
+                                {hasValidStoryAvatar ? (
+                                    <Image
+                                        source={{ uri: storyAvatarUri }}
+                                        style={styles.storyImage}
+                                    />
+                                ) : (
+                                    <View style={[styles.storyImage, { backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' }]}>
+                                        <Text style={{ color: colors.text, fontSize: 20, fontWeight: 'bold' }}>
+                                            {story.user.username?.[0]?.toUpperCase() || '?'}
+                                        </Text>
+                                    </View>
+                                )}
+                            </View>
+                            <Text
+                                style={[styles.storyUsername, { color: colors.text }]}
+                                numberOfLines={1}
+                            >
+                                {story.user.username}
+                            </Text>
+                        </TouchableOpacity>
+                    );
+                })}
+            </View>
         </ScrollView>
     );
 }

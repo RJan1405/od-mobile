@@ -23,6 +23,7 @@ import { format } from 'date-fns';
 import DocumentPicker from 'react-native-document-picker';
 import { useThemeStore } from '@/stores/themeStore';
 import { useChatStore } from '@/stores/chatStore';
+import { API_CONFIG } from '@/config';
 import { useAuthStore } from '@/stores/authStore';
 import websocketService from '@/services/websocket';
 import api from '@/services/api';
@@ -564,7 +565,7 @@ export default function ChatScreen() {
 
     const handleForwardToChat = async (targetChatId: number) => {
         if (!messageToForward) return;
-        
+
         try {
             const { sendMessage } = useChatStore.getState();
             await sendMessage(targetChatId, `[Forwarded]: ${messageToForward.content}`);
@@ -664,6 +665,7 @@ export default function ChatScreen() {
         };
 
         const sharedLinkData = parseShareLink(item.content);
+        const storyReplyData = item.story_reply;
 
         if (item.one_time) {
             const isConsumed = !!item.consumed_at;
@@ -786,6 +788,29 @@ export default function ChatScreen() {
                                 },
                             ]}
                         >
+                            {storyReplyData && (
+                                <View style={[styles.bubbleReplyContainer, { borderLeftColor: isOwnMessage ? '#FFFFFF' : colors.primary, backgroundColor: isOwnMessage ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', flexDirection: 'row', alignItems: 'center' }]}>
+                                    {storyReplyData.story_media_url ? (
+                                        <Image source={{ uri: storyReplyData.story_media_url.startsWith('http') ? storyReplyData.story_media_url : `${API_CONFIG.BASE_URL}${storyReplyData.story_media_url}` }} style={{ width: 40, height: 60, borderRadius: 4, marginRight: 8 }} />
+                                    ) : (
+                                        <View style={{ width: 40, height: 60, backgroundColor: '#333', borderRadius: 4, marginRight: 8, justifyContent: 'center', alignItems: 'center' }}>
+                                            {storyReplyData.story_type === 'text' ? (
+                                                <Text style={{ color: '#FFF', fontSize: 10, textAlign: 'center', padding: 2 }} numberOfLines={3}>{storyReplyData.story_content}</Text>
+                                            ) : (
+                                                <Icon name="bookmark-outline" size={20} color="#CCC" />
+                                            )}
+                                        </View>
+                                    )}
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[styles.bubbleReplySender, { color: isOwnMessage ? '#FFFFFF' : colors.primary }]} numberOfLines={1}>
+                                            {item.content === '❤️' ? 'Liked ' : 'Replied to '}{storyReplyData.story_owner || 'story'}
+                                        </Text>
+                                        <Text style={[styles.bubbleReplyText, { color: isOwnMessage ? 'rgba(255,255,255,0.7)' : colors.textSecondary }]} numberOfLines={1}>
+                                            {storyReplyData.story_content || 'View Story'}
+                                        </Text>
+                                    </View>
+                                </View>
+                            )}
                             {item.reply_to && (
                                 <View style={[styles.bubbleReplyContainer, { borderLeftColor: isOwnMessage ? '#FFFFFF' : colors.primary, backgroundColor: isOwnMessage ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' }]}>
                                     <Text style={[styles.bubbleReplySender, { color: isOwnMessage ? '#FFFFFF' : colors.primary }]} numberOfLines={1}>
@@ -1080,9 +1105,9 @@ export default function ChatScreen() {
                                             style={styles.forwardItem}
                                             onPress={() => handleForwardToChat(item.id)}
                                         >
-                                            <Image 
-                                                source={{ uri: item.participants?.[0]?.profile_picture_url || 'https://via.placeholder.com/40' }} 
-                                                style={styles.forwardAvatar} 
+                                            <Image
+                                                source={{ uri: item.participants?.[0]?.profile_picture_url || 'https://via.placeholder.com/40' }}
+                                                style={styles.forwardAvatar}
                                             />
                                             <Text style={[styles.forwardName, { color: colors.text }]}>
                                                 {item.name || item.participants?.[0]?.full_name || 'Group Chat'}
@@ -1092,7 +1117,7 @@ export default function ChatScreen() {
                                     )}
                                     style={{ maxHeight: 400 }}
                                 />
-                                <TouchableOpacity 
+                                <TouchableOpacity
                                     style={[styles.forwardCancel, { borderTopColor: colors.border }]}
                                     onPress={() => setIsForwardModalVisible(false)}
                                 >
@@ -1237,7 +1262,7 @@ export default function ChatScreen() {
                                             {replyToMessage.content || (replyToMessage.media_url ? 'Attachment' : '')}
                                         </Text>
                                     </View>
-                                    <TouchableOpacity 
+                                    <TouchableOpacity
                                         onPress={() => setReplyToMessage(null)}
                                         style={{ padding: 4 }}
                                     >
@@ -1246,48 +1271,48 @@ export default function ChatScreen() {
                                 </View>
                             )}
                             <View style={styles.inputContainer}>
-                            <TouchableOpacity
-                                style={[styles.attachButton, isAttachMenuVisible && { backgroundColor: colors.background }]}
-                                onPress={() => setIsAttachMenuVisible(!isAttachMenuVisible)}
-                            >
-                                <Icon name="attach-outline" size={26} color={colors.textSecondary} />
-                            </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.attachButton, isAttachMenuVisible && { backgroundColor: colors.background }]}
+                                    onPress={() => setIsAttachMenuVisible(!isAttachMenuVisible)}
+                                >
+                                    <Icon name="attach-outline" size={26} color={colors.textSecondary} />
+                                </TouchableOpacity>
 
-                            <View style={[styles.inputWrapper, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                                <TextInput
-                                    ref={inputRef}
+                                <View style={[styles.inputWrapper, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                                    <TextInput
+                                        ref={inputRef}
+                                        style={[
+                                            styles.input,
+                                            { color: colors.text },
+                                        ]}
+                                        placeholder={isOneTimeMode ? "One-time message..." : "Type a message..."}
+                                        placeholderTextColor={colors.textSecondary}
+                                        value={inputText}
+                                        onChangeText={handleTyping}
+                                        multiline
+                                        maxLength={1000}
+                                    />
+                                    <TouchableOpacity style={styles.smileyButton}>
+                                        <Icon name="happy-outline" size={24} color={colors.textSecondary} />
+                                    </TouchableOpacity>
+                                </View>
+
+                                <TouchableOpacity
                                     style={[
-                                        styles.input,
-                                        { color: colors.text },
+                                        styles.sendButton,
+                                        { backgroundColor: inputText.trim() ? colors.primary : '#A1C4FD' }
                                     ]}
-                                    placeholder={isOneTimeMode ? "One-time message..." : "Type a message..."}
-                                    placeholderTextColor={colors.textSecondary}
-                                    value={inputText}
-                                    onChangeText={handleTyping}
-                                    multiline
-                                    maxLength={1000}
-                                />
-                                <TouchableOpacity style={styles.smileyButton}>
-                                    <Icon name="happy-outline" size={24} color={colors.textSecondary} />
+                                    onPress={handleSend}
+                                    disabled={!inputText.trim()}
+                                >
+                                    <Icon
+                                        name="paper-plane"
+                                        size={18}
+                                        color="#FFFFFF"
+                                        style={{ marginLeft: -2 }}
+                                    />
                                 </TouchableOpacity>
                             </View>
-
-                            <TouchableOpacity
-                                style={[
-                                    styles.sendButton,
-                                    { backgroundColor: inputText.trim() ? colors.primary : '#A1C4FD' }
-                                ]}
-                                onPress={handleSend}
-                                disabled={!inputText.trim()}
-                            >
-                                <Icon
-                                    name="paper-plane"
-                                    size={18}
-                                    color="#FFFFFF"
-                                    style={{ marginLeft: -2 }}
-                                />
-                            </TouchableOpacity>
-                        </View>
                         </View>
                     </>
                 )}

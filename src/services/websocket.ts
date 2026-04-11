@@ -11,7 +11,6 @@ class WebSocketService {
     private chatSockets: Map<number, WebSocket> = new Map();
     private notifySocket: WebSocket | null = null;
     private sidebarSocket: WebSocket | null = null;
-    private callSocket: WebSocket | null = null;
 
     private messageCallbacks: Map<number, MessageCallback[]> = new Map();
     private readReceiptCallbacks: Map<number, ReadReceiptCallback[]> = new Map();
@@ -19,7 +18,6 @@ class WebSocketService {
     private p2pCallbacks: Map<number, EventCallback[]> = new Map();
     private notifyCallbacks: EventCallback[] = [];
     private sidebarCallbacks: EventCallback[] = [];
-    private callCallbacks: EventCallback[] = [];
 
     private reconnectAttempts: Map<string, number> = new Map();
     private maxReconnectAttempts = 5;
@@ -39,7 +37,7 @@ class WebSocketService {
 
     async getAuthToken(): Promise<string | null> {
         if (this.authToken) return this.authToken;
-        
+
         if (!this.isLoadingToken) {
             this.isLoadingToken = true;
             this.tokenPromise = AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN)
@@ -442,75 +440,6 @@ class WebSocketService {
         }
     }
 
-    // ==================== CALL SIGNALING WEBSOCKET ====================
-    connectToCall(chatId: number, onEvent: EventCallback): () => void {
-        const wsUrl = `${API_CONFIG.WS_URL}/ws/call/${chatId}/`;
-
-        this.callCallbacks.push(onEvent);
-
-        if (this.callSocket?.readyState === WebSocket.OPEN) {
-            return () => this.removeCallCallback(onEvent);
-        }
-
-        this.getAuthToken().then((token) => {
-            const authUrl = token ? `${wsUrl}?token=${token}` : wsUrl;
-            if (this.callSocket?.readyState === WebSocket.OPEN) return;
-            const socket = new WebSocket(authUrl);
-
-            socket.onopen = () => {
-                console.log(`Connected to call ${chatId}`);
-                this.reconnectAttempts.delete(`call_${chatId}`);
-            };
-
-            socket.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    this.callCallbacks.forEach(cb => cb(data));
-                } catch (error) {
-                    console.error('Error parsing call event:', error);
-                }
-            };
-
-            socket.onerror = (error) => {
-                console.error('Call WebSocket error:', error);
-            };
-
-            socket.onclose = () => {
-                console.log('Disconnected from call');
-                this.callSocket = null;
-            };
-
-            this.callSocket = socket;
-        });
-
-        return () => this.removeCallCallback(onEvent);
-    }
-
-    sendCallSignal(signal: any): void {
-        if (this.callSocket && this.callSocket.readyState === WebSocket.OPEN) {
-            this.callSocket.send(JSON.stringify(signal));
-        }
-    }
-
-    disconnectFromCall(): void {
-        if (this.callSocket) {
-            this.callSocket.close();
-            this.callSocket = null;
-            this.callCallbacks = [];
-        }
-    }
-
-    private removeCallCallback(callback: EventCallback): void {
-        const index = this.callCallbacks.indexOf(callback);
-        if (index > -1) {
-            this.callCallbacks.splice(index, 1);
-        }
-
-        if (this.callCallbacks.length === 0) {
-            this.disconnectFromCall();
-        }
-    }
-
     // ==================== CLEANUP ====================
     disconnectAll(): void {
         this.chatSockets.forEach((socket, chatId) => {
@@ -518,7 +447,6 @@ class WebSocketService {
         });
         this.disconnectFromNotifications();
         this.disconnectFromSidebar();
-        this.disconnectFromCall();
     }
 }
 

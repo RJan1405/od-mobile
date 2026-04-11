@@ -41,7 +41,13 @@ export interface Message {
     reply_to?: Message;
     shared_scribe?: Scribe;
     shared_omzo?: Omzo;
-    story_reply?: Story;
+    story_reply?: {
+        story_id: number;
+        story_type: 'image' | 'video' | 'text';
+        story_content?: string;
+        story_media_url?: string;
+        story_owner?: string;
+    };
 }
 
 export interface Chat {

@@ -7,6 +7,7 @@ import {
     Image,
     SafeAreaView,
     StatusBar,
+    Alert,
 } from 'react-native';
 import { MediaStream } from 'react-native-webrtc';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -32,16 +33,22 @@ export default function VoiceCallScreen() {
     const incomingOfferRef = useRef<any>(null);
     const incomingIceCandidatesRef = useRef<any[]>([]);
     const timerRef = useRef<NodeJS.Timeout | null>(null);
-    const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const processedSignalsRef = useRef<Set<string>>(new Set());
     const startTimeRef = useRef<number>(Date.now());
 
     useEffect(() => {
-        // ALWAYS connect signaling to listen for call.end or early offers
-        websocket.connectToCall(chatId, (data) => {
-            handleSignalingData(data);
+        // Ensure chat WebSocket connected (Chat socket handles P2P signals)
+        const cleanupChat = websocket.connectToChat(chatId, () => { });
+
+        // FIX 3: Initialize signal sender immediately
+        webrtc.setSignalSender(sendSignal);
+
+        // Handle incoming P2P signals
+        const cleanupP2P = websocket.onP2PSignal(chatId, (data: any) => {
+            if (data && data.signal) {
+                handleSignalingData(data.signal, data.sender_id);
+            }
         });
-        startPolling();
 
         if (isAccepted) {
             setupCall();
@@ -49,9 +56,9 @@ export default function VoiceCallScreen() {
 
         return () => {
             webrtc.endCall();
-            websocket.disconnectFromCall();
+            cleanupP2P();
+            cleanupChat();
             if (timerRef.current) clearInterval(timerRef.current);
-            if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
         };
     }, [isAccepted]);
 
@@ -67,10 +74,7 @@ export default function VoiceCallScreen() {
             const stream = await webrtc.setupLocalStream(false);
             setLocalStream(stream);
 
-            // 2. Set signal sender for WebRTC service
-            webrtc.setSignalSender(sendSignal);
-
-            // 3. Setup Remote Stream Callback
+            // 2. Setup Remote Stream Callback
             webrtc.setRemoteStreamCallback((_) => {
                 setCallStatus('Connected');
                 startTimer();
@@ -105,47 +109,15 @@ export default function VoiceCallScreen() {
     };
 
     const sendSignal = async (signalData: any) => {
-        // Try WebSocket first
-        websocket.sendCallSignal(signalData);
-
-        // Fallback or concurrent: send via API for reliability
-        // We only send significant signals via API to avoid bloat
-        if (['webrtc.offer', 'webrtc.answer', 'webrtc.ice', 'call.end'].includes(signalData.type)) {
-            try {
-                await api.sendP2PSignal(chatId, user.id, signalData);
-            } catch (error) {
-                console.warn('Fallback signaling failed:', error);
-            }
+        try {
+            websocket.sendP2PSignal(chatId, signalData, user.id);
+        } catch (error) {
+            console.error('[VoiceCall] Failed to send signal:', error);
         }
     };
 
-    const startPolling = () => {
-        if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = setInterval(async () => {
-            try {
-                const response = await api.getP2PSignals(chatId);
-                if (response.success && Array.isArray(response.data)) {
-                    response.data.forEach((signalObj: any) => {
-                        // 1. Skip if already processed
-                        const signalId = `${signalObj.id}_${signalObj.timestamp}`;
-                        if (processedSignalsRef.current.has(signalId)) return;
-
-                        // 2. Skip if stale (older than call start - 10s buffer)
-                        const signalTime = new Date(signalObj.timestamp).getTime();
-                        if (signalTime < (startTimeRef.current - 10000)) return;
-
-                        // 3. Mark as processed
-                        processedSignalsRef.current.add(signalId);
-
-                        // 4. Handle signaling data (handle both field names)
-                        handleSignalingData(signalObj.signal_data || signalObj.signal, signalObj.sender_id);
-                    });
-                }
-            } catch (error) {
-                console.error('Polling for signals failed:', error);
-            }
-        }, 3000); // Poll every 3 seconds
-    };
+    // Polling removed as requested - using exclusively WebSockets for real-time signaling.
+    // This prevents duplicate signals and race conditions.
 
     const handleSignalingData = async (data: any, fromUserId?: number) => {
         // Skip signals from self
@@ -161,12 +133,9 @@ export default function VoiceCallScreen() {
                 }
                 break;
             case 'webrtc.offer':
-                if (isIncoming && !isAccepted) {
-                    console.log('Incoming call ringing: caching offer');
-                    incomingOfferRef.current = data.sdp;
-                } else if (isIncoming && isAccepted) {
-                    await webrtc.handleOffer(data.sdp);
-                }
+                console.log('📞 Incoming offer received, triggering ringing UI');
+                // Ensure UI reflects incoming call and start handling the offer
+                await webrtc.handleOffer(data.sdp);
                 break;
             case 'webrtc.answer':
                 if (isAccepted || !isIncoming) await webrtc.handleAnswer(data.sdp);
@@ -180,6 +149,10 @@ export default function VoiceCallScreen() {
                 }
                 break;
             case 'call.end':
+                if (Date.now() - startTimeRef.current < 2000 && !isAccepted) {
+                    console.log('Ignoring premature call.end signal');
+                    return;
+                }
                 handleEndCall();
                 break;
         }

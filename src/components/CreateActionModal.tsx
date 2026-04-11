@@ -9,6 +9,7 @@ import {
     Platform,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
+import MIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useThemeStore } from '@/stores/themeStore';
 import { useNavigation } from '@react-navigation/native';
 import NewScribeModal from './NewScribeModal';
@@ -71,7 +72,7 @@ export default function CreateActionModal({ visible, onClose }: CreateActionModa
                                     onPress={handleCreateOmzo}
                                 >
                                     <View style={[styles.iconContainer, { backgroundColor: '#F3E8FF' }]}>
-                                        <Icon name="videocam" size={24} color="#A855F7" />
+                                        <MIcon name="movie" size={24} color="#A855F7" />
                                     </View>
                                     <View style={styles.optionTextContainer}>
                                         <Text style={[styles.optionTitle, { color: colors.text }]}>New Omzo</Text>

@@ -460,7 +460,9 @@ export default function HomeScreen() {
                     style={[styles.storiesContainer, { backgroundColor: colors.surface }]}
                     contentContainerStyle={styles.storiesContent}
                 >
-                    {storiesData.map((userStories, index) => renderStoryItem(userStories, index))}
+                    <View style={{ flexDirection: 'row', gap: 16 }}>
+                        {storiesData.map((userStories, index) => renderStoryItem(userStories, index))}
+                    </View>
                 </ScrollView>
             )}
 

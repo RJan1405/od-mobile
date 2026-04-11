@@ -60,6 +60,7 @@ function processMediaUrls(obj: any, depth: number = 0): any {
 class ApiService {
     private api: AxiosInstance;
     private authToken: string | null = null;
+    public currentUserId: number | null = null;
     private isLoadingToken = false;
     private tokenPromise: Promise<string | null> | null = null;
 
@@ -80,10 +81,14 @@ class ApiService {
                 // assignment isn't always reliable across environments, so we normalize/merge.
                 const setAuthHeader = (token: string) => {
                     const value = `Token ${token}`;
-                    config.headers = {
-                        ...(config.headers as any),
-                        Authorization: value,
-                    } as any;
+                    if (config.headers && typeof (config.headers as any).set === 'function') {
+                        (config.headers as any).set('Authorization', value);
+                    } else {
+                        config.headers = {
+                            ...(config.headers as any),
+                            Authorization: value,
+                        } as any;
+                    }
                 };
 
                 // Ensure token is loaded before proceeding with any request.
@@ -147,6 +152,12 @@ class ApiService {
             this.authToken = token;
             this.api.defaults.headers.common["Authorization"] = `Token ${token}`;
         }
+        const userData = await AsyncStorage.getItem(STORAGE_KEYS.USER_DATA);
+        if (userData) {
+            try {
+                this.currentUserId = JSON.parse(userData).id;
+            } catch (e) { }
+        }
     }
 
     async login(username: string, password: string): Promise<ApiResponse<User>> {
@@ -154,6 +165,7 @@ class ApiService {
             const response = await this.api.post('/api/login/', { username, password });
             if (response.data.success && response.data.user) {
                 await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(response.data.user));
+                this.currentUserId = response.data.user.id;
                 if (response.data.auth_token) {
                     const tokenStr = response.data.auth_token;
                     this.authToken = tokenStr;
@@ -763,6 +775,24 @@ class ApiService {
         }
     }
 
+    async addStoryReply(storyId: number, content: string): Promise<ApiResponse> {
+        try {
+            const response = await this.api.post('/api/story/add-reply/', { story_id: storyId, content });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async toggleStoryLike(storyId: number): Promise<ApiResponse> {
+        try {
+            const response = await this.api.post('/api/story/toggle-like/', { story_id: storyId });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
     // ==================== SOCIAL GRAPH ====================
     async getFollowStates(usernames: string[]): Promise<ApiResponse<Record<string, { is_following: boolean; is_blocked?: boolean; can_follow?: boolean }>>> {
         try {
@@ -940,38 +970,6 @@ class ApiService {
     async toggleBlock(userId: number): Promise<ApiResponse> {
         try {
             const response = await this.api.post('/api/toggle-block/', { user_id: userId });
-            return response.data;
-        } catch (error) {
-            return this.handleError(error);
-        }
-    }
-
-    // ==================== P2P SIGNALING (WebRTC) ====================
-    async sendP2PSignal(chatId: number, targetUserId: string | number, signalData: any): Promise<ApiResponse> {
-        try {
-            const response = await this.api.post('/api/p2p/send-signal/', {
-                chat_id: chatId,
-                target_user_id: targetUserId,
-                signal_data: signalData,
-            });
-            return response.data;
-        } catch (error) {
-            return this.handleError(error);
-        }
-    }
-
-    async getP2PSignals(chatId: number): Promise<ApiResponse<any[]>> {
-        try {
-            const response = await this.api.get(`/api/p2p/${chatId}/signals/`);
-            return response.data;
-        } catch (error) {
-            return this.handleError(error);
-        }
-    }
-
-    async clearP2PSignals(chatId: number): Promise<ApiResponse> {
-        try {
-            const response = await this.api.post('/api/p2p/clear-signals/', { chat_id: chatId });
             return response.data;
         } catch (error) {
             return this.handleError(error);

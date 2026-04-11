@@ -523,18 +523,6 @@ export default function OmzoViewerScreen() {
                     <Text style={styles.actionCount}>{formatCount(likeCount)}</Text>
                 </TouchableOpacity>
 
-                {/* Dislike */}
-                <TouchableOpacity style={styles.actionButton} onPress={handleDislike} activeOpacity={0.7}>
-                    <View style={styles.actionIconContainer}>
-                        <Icon
-                            name={isDisliked ? 'thumbs-down' : 'thumbs-down-outline'}
-                            size={26}
-                            color={isDisliked ? '#6366F1' : '#FFFFFF'}
-                        />
-                    </View>
-                    <Text style={styles.actionCount}>{formatCount(dislikeCount)}</Text>
-                </TouchableOpacity>
-
                 {/* Comment */}
                 <TouchableOpacity style={styles.actionButton} onPress={handleComments} activeOpacity={0.7}>
                     <View style={styles.actionIconContainer}>
@@ -543,17 +531,6 @@ export default function OmzoViewerScreen() {
                     <Text style={styles.actionCount}>{formatCount(commentCount)}</Text>
                 </TouchableOpacity>
 
-                {/* Bookmark */}
-                <TouchableOpacity style={styles.actionButton} onPress={handleToggleSave} activeOpacity={0.7}>
-                    <View style={styles.actionIconContainer}>
-                        <Icon
-                            name={isSaved ? 'bookmark' : 'bookmark-outline'}
-                            size={24}
-                            color={isSaved ? '#FFFFFF' : '#FFFFFF'}
-                        />
-                    </View>
-                </TouchableOpacity>
-                
                 {/* Repost */}
                 <TouchableOpacity style={styles.actionButton} onPress={handleRepost} activeOpacity={0.7}>
                     <View style={[
@@ -575,6 +552,17 @@ export default function OmzoViewerScreen() {
                 <TouchableOpacity style={styles.actionButton} onPress={handleShare} activeOpacity={0.7}>
                     <View style={styles.actionIconContainer}>
                         <Icon name="paper-plane-outline" size={24} color="#FFFFFF" style={{ marginLeft: -2, marginTop: 2 }} />
+                    </View>
+                </TouchableOpacity>
+
+                {/* Bookmark */}
+                <TouchableOpacity style={styles.actionButton} onPress={handleToggleSave} activeOpacity={0.7}>
+                    <View style={styles.actionIconContainer}>
+                        <Icon
+                            name={isSaved ? 'bookmark' : 'bookmark-outline'}
+                            size={24}
+                            color={isSaved ? '#FFFFFF' : '#FFFFFF'}
+                        />
                     </View>
                 </TouchableOpacity>
             </View>
