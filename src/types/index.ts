@@ -7,6 +7,7 @@ export interface User {
     full_name: string;
     profile_picture: string;
     profile_picture_url: string;
+    cover_image_url?: string;
     avatar?: string;
     bio?: string;
     is_verified: boolean;

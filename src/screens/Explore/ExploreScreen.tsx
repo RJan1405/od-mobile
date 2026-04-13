@@ -1176,7 +1176,12 @@ export default function ExploreScreen() {
                         </View>
                     )}
                     <View style={styles.userInfo}>
-                        <Text style={[styles.userName, { color: colors.text }]}>{item.title}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Text style={[styles.userName, { color: colors.text }]}>{item.title}</Text>
+                            {(item.data?.is_verified || item.is_verified) && (
+                                <Icon name="checkmark-circle" size={14} color="#3897f0" style={{ marginLeft: 4 }} />
+                            )}
+                        </View>
                         <Text style={[styles.userUsername, { color: colors.textSecondary }]}>
                             {item.subtitle}
                         </Text>
@@ -2702,7 +2707,7 @@ const styles = StyleSheet.create({
     userAvatar: {
         width: 48,
         height: 48,
-        borderRadius: 24,
+        borderRadius: 12,
         marginRight: 12,
     },
     groupIcon: {

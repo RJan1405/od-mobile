@@ -4,6 +4,7 @@ import { API_BASE_URL, WS_BASE_URL } from '@env';
 // For Android emulator: Use 10.0.2.2
 // For physical phone: Use your computer's local IP (run: ipconfig)
 export const API_CONFIG = {
+    // Hardcoding your PC's IP so WebRTC works outside of adb reverse
     BASE_URL: API_BASE_URL || 'http://localhost:8000',
     WS_URL: WS_BASE_URL || 'ws://localhost:8000',
     TIMEOUT: 30000,

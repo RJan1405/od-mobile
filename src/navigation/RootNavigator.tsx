@@ -125,7 +125,7 @@ function MainTabs() {
                     options={{
                         headerShown: false,
                         tabBarIcon: ({ color, focused }) => (
-                            <Icon name={focused ? 'home' : 'home-outline'} size={24} color={color} />
+                            <Icon name={focused ? 'home' : 'home-outline'} size={26} color={color} />
                         ),
                     }}
                 />
@@ -134,7 +134,7 @@ function MainTabs() {
                     component={OmzoScreen}
                     options={{
                         tabBarIcon: ({ color, focused }) => (
-                            <MIcon name={focused ? 'movie' : 'movie-outline'} size={24} color={color} />
+                            <MIcon name={focused ? 'movie' : 'movie-outline'} size={28} color={color} />
                         ),
                         headerShown: false,
                     }}
@@ -159,7 +159,7 @@ function MainTabs() {
                     component={ExploreScreen}
                     options={{
                         tabBarIcon: ({ color, focused }) => (
-                            <Icon name={focused ? 'compass' : 'compass-outline'} size={24} color={color} />
+                            <Icon name={focused ? 'compass' : 'compass-outline'} size={30} color={color} />
                         ),
                     }}
                 />

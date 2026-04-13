@@ -74,9 +74,14 @@ export default function SearchScreen() {
                     )}
                 </View>
                 <View style={styles.userInfo}>
-                    <Text style={[styles.fullName, { color: colors.text }]}>
-                        {item.full_name || item.username}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text style={[styles.fullName, { color: colors.text }]}>
+                            {item.full_name || item.username}
+                        </Text>
+                        {item.is_verified && (
+                            <Icon name="checkmark-circle" size={14} color="#3897f0" style={{ marginLeft: 4 }} />
+                        )}
+                    </View>
                     <Text style={[styles.username, { color: colors.textSecondary }]}>
                         @{item.username}
                     </Text>

@@ -8,6 +8,8 @@ import {
     SafeAreaView,
     StatusBar,
     Alert,
+    Platform,
+    PermissionsAndroid,
 } from 'react-native';
 import { MediaStream } from 'react-native-webrtc';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -25,11 +27,13 @@ export default function VoiceCallScreen() {
     const { user, chatId, isIncoming } = route.params as { user: any, chatId: number, isIncoming?: boolean };
 
     const [isMuted, setIsMuted] = useState(false);
+    const isCallingRef = useRef(false);
     const [isSpeakerOn, setIsSpeakerOn] = useState(false);
     const [callStatus, setCallStatus] = useState(isIncoming ? 'Incoming...' : 'Calling...');
     const [seconds, setSeconds] = useState(0);
     const [localStream, setLocalStream] = useState<MediaStream | null>(null);
     const [isAccepted, setIsAccepted] = useState(!isIncoming);
+    const isAcceptedRef = useRef(!isIncoming);
     const incomingOfferRef = useRef<any>(null);
     const incomingIceCandidatesRef = useRef<any[]>([]);
     const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -44,7 +48,8 @@ export default function VoiceCallScreen() {
         webrtc.setSignalSender(sendSignal);
 
         // Handle incoming P2P signals
-        const cleanupP2P = websocket.onP2PSignal(chatId, (data: any) => {
+        const cleanupP2P = websocket.onP2PSignal((data: any) => {
+            console.log("🔥 RECEIVED SIGNAL P2P in VoiceCallScreen:", data.signal?.type);
             if (data && data.signal) {
                 handleSignalingData(data.signal, data.sender_id);
             }
@@ -64,26 +69,56 @@ export default function VoiceCallScreen() {
 
     const acceptCall = async () => {
         setIsAccepted(true);
+        isAcceptedRef.current = true;
         setCallStatus('Connecting...');
         await setupCall();
     };
 
     const setupCall = async () => {
+        if (isCallingRef.current) return;
+        isCallingRef.current = true;
         try {
+            if (Platform.OS === 'android') {
+                const granted = await PermissionsAndroid.requestMultiple([
+                    PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+                ]);
+
+                if (
+                    granted['android.permission.RECORD_AUDIO'] !== PermissionsAndroid.RESULTS.GRANTED
+                ) {
+                    setCallStatus('Permission Denied');
+                    Alert.alert('Permission Denied', 'Microphone permission is required for voice calls.');
+                    return;
+                }
+            }
+
             // 1. Setup Local Stream FIRST so tracks are ready before any signaling
             const stream = await webrtc.setupLocalStream(false);
             setLocalStream(stream);
 
             // 2. Setup Remote Stream Callback
-            webrtc.setRemoteStreamCallback((_) => {
-                setCallStatus('Connected');
-                startTimer();
+            webrtc.setRemoteStreamCallback((remoteStream) => {
+                console.log("[VoiceCall] Received remote stream");
+                console.log("[VoiceCall] Remote Video Tracks:", remoteStream.getVideoTracks().length);
+                console.log("[VoiceCall] Remote Audio Tracks:", remoteStream.getAudioTracks().length);
+            });
+
+            // Set Connection State Callback to start timer only when truly connected
+            webrtc.setConnectionStateCallback((state) => {
+                console.log("[VoiceCall] Connection State change received:", state);
+                if (state === 'connected') {
+                    setCallStatus('Connected');
+                    startTimer();
+                }
             });
 
             // 4. If not incoming, start the call
             if (!isIncoming) {
                 await webrtc.startCall(false);
             } else {
+                // Tell the caller we are ready to receive the offer and missing ICE candidates
+                sendSignal({ type: 'webrtc.ready' });
+
                 // If we already received an offer while ringing, process it
                 if (incomingOfferRef.current) {
                     await webrtc.handleOffer(incomingOfferRef.current);
@@ -93,12 +128,15 @@ export default function VoiceCallScreen() {
                     }
                     incomingIceCandidatesRef.current = []; // clear
                 } else {
-                    // Tell the caller we are ready to receive the offer
-                    sendSignal({ type: 'webrtc.ready' });
                     // Also check route params
                     const offer = (route.params as any)?.offer;
                     if (offer) {
                         await webrtc.handleOffer(offer);
+                        // Process cached ICE candidates
+                        for (const ice of incomingIceCandidatesRef.current) {
+                            await webrtc.handleIceCandidate(ice);
+                        }
+                        incomingIceCandidatesRef.current = []; // clear
                     }
                 }
             }
@@ -121,38 +159,38 @@ export default function VoiceCallScreen() {
 
     const handleSignalingData = async (data: any, fromUserId?: number) => {
         // Skip signals from self
-        if (fromUserId && fromUserId === (api as any).currentUserId) {
-            return;
-        }
-
+        // Backend filters our own messages, but we log for tracking
         console.log('Call Signal Received:', data.type);
         switch (data.type) {
             case 'webrtc.ready':
-                if (!isIncoming) {
+                if (!isIncoming && !webrtc.isConnected) {
                     await webrtc.resendOffer(false);
                 }
                 break;
             case 'webrtc.offer':
-                console.log('📞 Incoming offer received, triggering ringing UI');
-                // Ensure UI reflects incoming call and start handling the offer
-                await webrtc.handleOffer(data.sdp);
+                console.log('📞 Incoming offer received.');
+                if (isIncoming && !isAcceptedRef.current) {
+                    console.log('Ringing: caching Offer');
+                    incomingOfferRef.current = data.sdp;
+                } else {
+                    await webrtc.handleOffer(data.sdp);
+                }
                 break;
             case 'webrtc.answer':
-                if (isAccepted || !isIncoming) await webrtc.handleAnswer(data.sdp);
+                console.log('📞 Received webrtc.answer. isAcceptedRef:', isAcceptedRef.current, 'isIncoming:', isIncoming);
+                if (isAcceptedRef.current || !isIncoming) await webrtc.handleAnswer(data.sdp);
                 break;
             case 'webrtc.ice':
-                if (isIncoming && !isAccepted) {
+                console.log('🧊 Received webrtc.ice');
+                if (isIncoming && !isAcceptedRef.current) {
                     console.log('Incoming call ringing: caching ICE candidate');
                     incomingIceCandidatesRef.current.push(data.candidate);
-                } else if (isAccepted || !isIncoming) {
+                } else if (isAcceptedRef.current || !isIncoming) {
                     await webrtc.handleIceCandidate(data.candidate);
                 }
                 break;
             case 'call.end':
-                if (Date.now() - startTimeRef.current < 2000 && !isAccepted) {
-                    console.log('Ignoring premature call.end signal');
-                    return;
-                }
+                console.log('Call ended by peer.');
                 handleEndCall();
                 break;
         }
@@ -172,6 +210,12 @@ export default function VoiceCallScreen() {
     };
 
     const handleEndCall = () => {
+        // Prevent recursive ending
+        if (callStatus === 'Ended') return;
+        setCallStatus('Ended');
+
+        // Send a signal to the other user that the call has ended
+        sendSignal({ type: 'call.end' });
         webrtc.endCall();
         if (navigation.canGoBack()) {
             navigation.goBack();

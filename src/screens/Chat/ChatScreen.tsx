@@ -215,7 +215,12 @@ export default function ChatScreen() {
                             style={{ width: 40, height: 40, borderRadius: 8, marginRight: 12 }}
                         />
                         <View>
-                            <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text }}>{title}</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text }}>{title}</Text>
+                                {currentChat?.chat_type === 'private' && targetUser?.is_verified && (
+                                    <Icon name="checkmark-circle" size={14} color="#3897f0" style={{ marginLeft: 4 }} />
+                                )}
+                            </View>
                             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
                                 <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981', marginRight: 4 }} />
                                 <Text style={{ fontSize: 12, color: colors.textSecondary }}>Last seen recently</Text>
@@ -321,7 +326,8 @@ export default function ChatScreen() {
             console.log(`📶 [P2P Signal] Recv: ${sigType} from ${data.sender_id}`);
 
             // 1. Handle incoming offers when idle
-            if (p2pStatus === 'idle' && (sigType === 'file.offer' || sigType === 'webrtc.offer')) {
+            const isFileOffer = sigType === 'file.offer' || (sigType === 'webrtc.offer' && (data.signal?.meta || data.signal?.metadata));
+            if (p2pStatus === 'idle' && isFileOffer) {
                 const sigData = data.signal;
                 setIncomingOffer({
                     signal: sigData,

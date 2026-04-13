@@ -350,10 +350,13 @@ export default function ProfileScreen() {
 
             {/* Header */}
             <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
-                <View>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Text style={[styles.headerName, { color: colors.text }]}>
                         {user.full_name || user.username}
                     </Text>
+                    {user.is_verified && (
+                        <Icon name="checkmark-circle" size={16} color="#3897f0" style={{ marginLeft: 4 }} />
+                    )}
                 </View>
                 <View style={styles.headerRight}>
                     {/*<TouchableOpacity onPress={handleShare} style={styles.headerIconWrapper}>
@@ -373,7 +376,7 @@ export default function ProfileScreen() {
                 <View style={[styles.coverContainer, { backgroundColor: colors.primary + '20' }]}>
                     {(user as any).cover_image_url ? (
                         <FastImage
-                            source={{ 
+                            source={{
                                 uri: (user as any).cover_image_url,
                                 priority: FastImage.priority.normal,
                                 cache: FastImage.cacheControl.immutable,
@@ -390,7 +393,7 @@ export default function ProfileScreen() {
                     <View style={styles.profileImageWrapper}>
                         {hasValidProfilePic ? (
                             <FastImage
-                                source={{ 
+                                source={{
                                     uri: profilePicUri,
                                     priority: FastImage.priority.high,
                                     cache: FastImage.cacheControl.immutable,
@@ -497,9 +500,14 @@ export default function ProfileScreen() {
 
                 {/* User Info Section */}
                 <View style={styles.userInfoSection}>
-                    <Text style={[styles.fullNameText, { color: colors.text }]}>
-                        {user.full_name || user.username}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
+                        <Text style={[styles.fullNameText, { color: colors.text }]}>
+                            {user.full_name || user.username}
+                        </Text>
+                        {user.is_verified && (
+                            <Icon name="checkmark-circle" size={18} color="#3897f0" style={{ marginLeft: 4 }} />
+                        )}
+                    </View>
                     <Text style={[styles.usernameText, { color: colors.textSecondary }]}>
                         @{user.username}
                     </Text>

@@ -19,6 +19,9 @@ class WebSocketService {
     private notifyCallbacks: EventCallback[] = [];
     private sidebarCallbacks: EventCallback[] = [];
 
+    private p2pQueues: Map<number, any[]> = new Map();
+    private messageQueues: Map<number, any[]> = new Map();
+
     private reconnectAttempts: Map<string, number> = new Map();
     private maxReconnectAttempts = 5;
     private reconnectDelay = 3000;
@@ -69,18 +72,49 @@ class WebSocketService {
             }
         }
 
+
+        // BLOCK duplicate async creations synchronously
+        this.chatSockets.set(chatId, { readyState: WebSocket.CONNECTING, isDummy: true } as any);
+
         // Create new socket
         this.getAuthToken().then((token) => {
             const authUrl = token ? `${wsUrl}?token=${token}` : wsUrl;
             if (this.chatSockets.has(chatId)) {
-                const s = this.chatSockets.get(chatId);
-                if (s && (s.readyState === WebSocket.OPEN || s.readyState === WebSocket.CONNECTING)) return;
+                const s: any = this.chatSockets.get(chatId);
+                // Skip return if it's our dummy object that we just set
+                if (s && !s.isDummy && (s.readyState === WebSocket.OPEN || s.readyState === WebSocket.CONNECTING)) return;
             }
             const socket = new WebSocket(authUrl);
 
             socket.onopen = () => {
                 console.log(`✅ [WebSocket] Connected to chat ${chatId}`);
                 this.reconnectAttempts.delete(`chat_${chatId}`);
+
+                // Flush P2P queues
+                if (this.p2pQueues.has(chatId)) {
+                    const q = this.p2pQueues.get(chatId)!;
+                    while (q.length > 0) socket.send(JSON.stringify(q.shift()));
+                    this.p2pQueues.delete(chatId);
+                }
+                // Flush Message queues
+                if (this.messageQueues.has(chatId)) {
+                    const msgQ = this.messageQueues.get(chatId)!;
+                    while (msgQ.length > 0) socket.send(JSON.stringify(msgQ.shift()));
+                    this.messageQueues.delete(chatId);
+                }
+
+                // Flush P2P queues
+                if (this.p2pQueues.has(chatId)) {
+                    const q = this.p2pQueues.get(chatId)!;
+                    while (q.length > 0) socket.send(JSON.stringify(q.shift()));
+                    this.p2pQueues.delete(chatId);
+                }
+                // Flush Message queues
+                if (this.messageQueues.has(chatId)) {
+                    const msgQ = this.messageQueues.get(chatId)!;
+                    while (msgQ.length > 0) socket.send(JSON.stringify(msgQ.shift()));
+                    this.messageQueues.delete(chatId);
+                }
             };
 
             socket.onmessage = (event) => {
@@ -107,8 +141,14 @@ class WebSocketService {
                             consumed_at: data.consumed_at
                         }));
                     } else if (data.type === 'p2p.signal') {
-                        const p2pCbs = this.p2pCallbacks.get(chatId) || [];
-                        p2pCbs.forEach((cb: any) => cb(data));
+                        // Global callbacks (id=0) and chat-specific callbacks
+                        const globalCbs = this.p2pCallbacks.get(0) || [];
+                        const localCbs = this.p2pCallbacks.get(chatId) || [];
+                        const p2pCbs = [...globalCbs, ...localCbs];
+                        console.log("📩 RAW WS EVENT p2p.signal:", data);
+                        p2pCbs.forEach((cb: any) => {
+                            if (typeof cb === 'function') cb(data);
+                        });
                     }
                 } catch (error) {
                     console.error('Error parsing message:', error);
@@ -149,16 +189,16 @@ class WebSocketService {
 
     sendChatMessage(chatId: number, message: any): void {
         const socket = this.chatSockets.get(chatId);
+        const payload: any = { type: 'message.send', ...message };
+        if (message.reply_to_id && !payload.reply_to) payload.reply_to = message.reply_to_id;
+
         if (socket && socket.readyState === WebSocket.OPEN) {
-            const payload: any = {
-                type: 'message.send',
-                ...message,
-            };
-            // Ensure reply_to is sent for backend compatibility
-            if (message.reply_to_id && !payload.reply_to) {
-                payload.reply_to = message.reply_to_id;
-            }
             socket.send(JSON.stringify(payload));
+        } else {
+            console.log('[WebSocket] Queuing message for chat');
+            const q = this.messageQueues.get(chatId) || [];
+            q.push(payload);
+            this.messageQueues.set(chatId, q);
         }
     }
 
@@ -205,12 +245,14 @@ class WebSocketService {
 
     sendP2PSignal(chatId: number, signal: any, targetUserId?: number): void {
         const socket = this.chatSockets.get(chatId);
+        const payload = { type: 'p2p.signal', signal, target_user_id: targetUserId };
         if (socket && socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({
-                type: 'p2p.signal',
-                signal,
-                target_user_id: targetUserId,
-            }));
+            socket.send(JSON.stringify(payload));
+        } else {
+            console.log('[WebSocket] Queuing P2P signal for');
+            const q = this.p2pQueues.get(chatId) || [];
+            q.push(payload);
+            this.p2pQueues.set(chatId, q);
         }
     }
 
@@ -252,7 +294,16 @@ class WebSocketService {
         };
     }
 
-    onP2PSignal(chatId: number, callback: EventCallback): () => void {
+    onP2PSignal(arg1: number | EventCallback, arg2?: EventCallback): () => void {
+        let chatId = 0;
+        let callback: EventCallback;
+        if (typeof arg1 === 'number') {
+            chatId = arg1;
+            callback = arg2 as EventCallback;
+        } else {
+            callback = arg1 as EventCallback;
+        }
+
         const callbacks = this.p2pCallbacks.get(chatId) || [];
         callbacks.push(callback);
         this.p2pCallbacks.set(chatId, callbacks);
@@ -274,7 +325,9 @@ class WebSocketService {
     disconnectFromChat(chatId: number): void {
         const socket = this.chatSockets.get(chatId);
         if (socket) {
-            socket.close();
+            if (typeof socket.close === 'function') {
+                socket.close();
+            }
             this.chatSockets.delete(chatId);
             this.messageCallbacks.delete(chatId);
         }
@@ -350,7 +403,7 @@ class WebSocketService {
 
     disconnectFromNotifications(): void {
         if (this.notifySocket) {
-            this.notifySocket.close();
+            if (typeof this.notifySocket.close === 'function') this.notifySocket.close();
             this.notifySocket = null;
             this.notifyCallbacks = [];
         }
@@ -423,7 +476,7 @@ class WebSocketService {
 
     disconnectFromSidebar(): void {
         if (this.sidebarSocket) {
-            this.sidebarSocket.close();
+            if (typeof this.sidebarSocket.close === 'function') this.sidebarSocket.close();
             this.sidebarSocket = null;
             this.sidebarCallbacks = [];
         }

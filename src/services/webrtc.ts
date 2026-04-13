@@ -12,18 +12,31 @@ class WebRTCService {
     private localStream: MediaStream | null = null;
     private remoteStream: MediaStream | null = null;
     private iceCandidatesQueue: any[] = [];
+    private localIceCandidates: any[] = [];
     private hasProcessedOffer = false;
     public isConnected = false;
     private configuration = {
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' }
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun3.l.google.com:19302' },
+            { urls: 'stun:stun4.l.google.com:19302' },
+            {
+                urls: [
+                    'turn:openrelay.metered.ca:80',
+                    'turn:openrelay.metered.ca:443',
+                    'turn:openrelay.metered.ca:443?transport=tcp'
+                ],
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            }
         ],
     };
 
     private onRemoteStreamCallback: ((stream: MediaStream) => void) | null = null;
     private onCallEndCallback: (() => void) | null = null;
+    private onConnectionStateCallback: ((state: string) => void) | null = null;
     private signalSender: ((signal: any) => void) | null = null;
 
     async setupLocalStream(isVideo: boolean) {
@@ -59,6 +72,7 @@ class WebRTCService {
         this.peerConnection.onicecandidate = (event: any) => {
             if (event.candidate && this.signalSender) {
                 console.log('[WebRTC] Generated ICE candidate');
+                this.localIceCandidates.push(event.candidate);
                 this.signalSender({
                     type: 'webrtc.ice',
                     candidate: event.candidate,
@@ -66,9 +80,23 @@ class WebRTCService {
             }
         };
 
+        this.peerConnection.onicegatheringstatechange = () => {
+            if (this.peerConnection) {
+                console.log('[WebRTC] ICE Gathering State:', this.peerConnection.iceGatheringState);
+            }
+        };
+
         this.peerConnection.oniceconnectionstatechange = () => {
             if (this.peerConnection) {
                 console.log('[WebRTC] ICE Connection State:', this.peerConnection.iceConnectionState);
+                const state = this.peerConnection.iceConnectionState;
+                if (state === 'connected' || state === 'completed') {
+                    this.isConnected = true;
+                    console.log('[WebRTC] Connection established successfully!');
+                    if (this.onConnectionStateCallback) {
+                        this.onConnectionStateCallback('connected');
+                    }
+                }
             }
         };
 
@@ -77,23 +105,35 @@ class WebRTCService {
                 console.log('[WebRTC] Peer Connection State:', this.peerConnection.connectionState);
                 if (this.peerConnection.connectionState === 'connected') {
                     this.isConnected = true;
+                    if (this.onConnectionStateCallback) {
+                        this.onConnectionStateCallback('connected');
+                    }
                 }
             }
         };
 
         this.peerConnection.ontrack = (event: any) => {
-            console.log('[WebRTC] Received remote track:', event.track.kind);
-            if (event.streams && event.streams[0]) {
-                this.remoteStream = event.streams[0];
-            } else {
-                // Fallback for cases where streams are not provided
-                if (!this.remoteStream) {
-                    this.remoteStream = new MediaStream();
-                }
+            console.log('[WebRTC] Received remote track of kind:', event.track.kind);
+
+            if (!this.remoteStream) {
+                this.remoteStream = event.streams[0] || new MediaStream();
+            }
+
+            // Avoid duplicate adding
+            const alreadyExists = this.remoteStream
+                .getTracks()
+                .some((t: any) => t.id === event.track.id);
+
+            if (!alreadyExists) {
                 this.remoteStream.addTrack(event.track);
             }
 
-            if (this.onRemoteStreamCallback && this.remoteStream) {
+            // 🔥 Call callback ONLY ONCE (important)
+            const isVideoCall = this.localStream && this.localStream.getVideoTracks().length > 0;
+            const requiredTracks = isVideoCall ? 2 : 1;
+
+            if (this.onRemoteStreamCallback && this.remoteStream.getTracks().length >= requiredTracks) {
+                console.log('[WebRTC] Final remote stream ready');
                 this.onRemoteStreamCallback(this.remoteStream);
             }
         };
@@ -108,9 +148,10 @@ class WebRTCService {
     private addStreamTracks(stream: MediaStream) {
         if (!this.peerConnection) return;
 
-        console.log('[WebRTC] Adding local tracks to connection');
+        console.log('[WebRTC] Adding local tracks to connection. Total tracks:', stream.getTracks().length);
         if (this.peerConnection.addTrack) {
             stream.getTracks().forEach((track) => {
+                console.log(`[WebRTC] Adding local ${track.kind} track to peerConnection.`);
                 // Check if track already added to avoid duplicates
                 const alreadyAdded = this.peerConnection.getSenders().some((s: any) => s.track === track);
                 if (!alreadyAdded) {
@@ -148,6 +189,15 @@ class WebRTCService {
                     sdp: this.peerConnection.localDescription,
                     audioOnly: !isVideo,
                 });
+
+                // Re-send all local ICE candidates gathered so far
+                console.log(`[WebRTC] Re-sending ${this.localIceCandidates.length} local ICE candidates`);
+                this.localIceCandidates.forEach(candidate => {
+                    this.signalSender!({
+                        type: 'webrtc.ice',
+                        candidate: candidate,
+                    });
+                });
             }
         }
     }
@@ -171,13 +221,13 @@ class WebRTCService {
                 new RTCSessionDescription(remoteSdp as any)
             );
 
-            // Process queued ice candidates
-            this.processQueuedCandidates();
-
             console.log('[WebRTC] Creating answer...');
             const answer = await this.peerConnection.createAnswer();
             console.log('[WebRTC] Setting local description (answer)...');
             await this.peerConnection.setLocalDescription(answer);
+
+            // Process queued ice candidates AFTER both descriptions are set
+            await this.processQueuedCandidates();
 
             if (this.signalSender) {
                 console.log('[WebRTC] Sending answer signal');
@@ -199,8 +249,9 @@ class WebRTCService {
         try {
             console.log('[WebRTC] Handling answer...');
             if (this.peerConnection) {
+                console.log('[WebRTC] Current signalingState:', this.peerConnection.signalingState);
                 if (this.peerConnection.signalingState !== 'have-local-offer') {
-                    console.log('[WebRTC] Skipping Answer because signaling state is', this.peerConnection.signalingState);
+                    console.log('⚠️ [WebRTC] Warning: Skipping Answer because signaling state is', this.peerConnection.signalingState);
                     return;
                 }
                 const remoteSdp = typeof sdp === 'string' ? { type: 'answer', sdp } : sdp;
@@ -209,8 +260,8 @@ class WebRTCService {
                     new RTCSessionDescription(remoteSdp as any)
                 );
 
-                // Process queued ice candidates
-                this.processQueuedCandidates();
+                // Process queued ice candidates after remote is set and we're stable
+                await this.processQueuedCandidates();
             } else {
                 console.warn('[WebRTC] handleAnswer called but peerConnection is null');
             }
@@ -257,19 +308,19 @@ class WebRTCService {
         this.onCallEndCallback = callback;
     }
 
+    setConnectionStateCallback(callback: (state: string) => void) {
+        this.onConnectionStateCallback = callback;
+    }
+
     setSignalSender(callback: (signal: any) => void) {
         this.signalSender = callback;
     }
 
     endCall() {
-        if (!this.peerConnection) return;
+        if (!this.peerConnection && !this.localStream) return;
 
-        if (this.isConnected) {
-            console.log("Closing after connection");
-        } else {
-            console.log("Prevent early close ❌");
-            return; // 🔥 BLOCK EARLY CLOSE
-        }
+        // Forcefully close, no early return as users expect "End Call" to actually end it
+        console.log("Forcing call end ❌");
 
         if (this.onCallEndCallback) {
             this.onCallEndCallback();
@@ -291,6 +342,7 @@ class WebRTCService {
 
         this.remoteStream = null;
         this.iceCandidatesQueue = [];
+        this.localIceCandidates = [];
         this.hasProcessedOffer = false;
         this.isConnected = false;
     }

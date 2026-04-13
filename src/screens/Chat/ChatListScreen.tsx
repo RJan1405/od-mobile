@@ -139,9 +139,14 @@ export default function ChatListScreen() {
                 </View>
                 <View style={styles.chatContent}>
                     <View style={styles.chatHeader}>
-                        <Text style={[styles.chatName, { color: '#1C1C1E' }]} numberOfLines={1}>
-                            {chatName}
-                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, paddingRight: 8 }}>
+                            <Text style={[styles.chatName, { color: '#1C1C1E', flexShrink: 1, flex: undefined }]} numberOfLines={1}>
+                                {chatName}
+                            </Text>
+                            {item.chat_type === 'private' && otherUser?.is_verified && (
+                                <Icon name="checkmark-circle" size={14} color="#3897f0" style={{ marginLeft: 4 }} />
+                            )}
+                        </View>
                         {item.last_message && (
                             <Text style={[styles.timestamp, { color: '#8E8E93' }]}>
                                 {formatTimestamp(item.last_message.timestamp)}
