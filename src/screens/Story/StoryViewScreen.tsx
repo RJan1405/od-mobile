@@ -21,6 +21,7 @@ import {
 import { useRoute, useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import Video from 'react-native-video';
+import Modal from 'react-native-modal';
 import { useThemeStore } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
 import api from '@/services/api';
@@ -50,6 +51,9 @@ export default function StoryViewScreen() {
     const [isMuted, setIsMuted] = useState(false);
     const [reply, setReply] = useState('');
     const [sendingReply, setSendingReply] = useState(false);
+    const [isViewersVisible, setIsViewersVisible] = useState(false);
+    const [viewersList, setViewersList] = useState<User[]>([]);
+    const [isLoadingViewers, setIsLoadingViewers] = useState(false);
     const keyboardHeight = useRef(new Animated.Value(0)).current;
 
     // Handle pausable logic for progress bar globally
@@ -107,6 +111,33 @@ export default function StoryViewScreen() {
             setSendingReply(false);
         }
     };
+
+    const handleOpenViewers = async (storyId: number) => {
+        setIsPaused(true);
+        setIsViewersVisible(true);
+        setIsLoadingViewers(true);
+        try {
+            const response: any = await api.getStoryViewers(storyId);
+            if (response.success) {
+                // The actual backend response puts viewers on the root or inside data
+                const viewers = response.viewers || (response.data && response.data.viewers) || (Array.isArray(response.data) ? response.data : []);
+                // Filter out the current user from the viewers list 
+                const filteredViewers = viewers.filter((v: any) => v.id !== currentUser?.id);
+                setViewersList(filteredViewers);
+            }
+        } catch (error) {
+            console.error('Failed to get viewers:', error);
+        } finally {
+            setIsLoadingViewers(false);
+        }
+    };
+
+    const handleCloseViewers = () => {
+        setIsViewersVisible(false);
+        setIsPaused(false);
+        setViewersList([]);
+    };
+
     const [isLiked, setIsLiked] = useState(false);
 
     const toggleLike = async () => {
@@ -555,10 +586,10 @@ export default function StoryViewScreen() {
                         { transform: [{ translateY: Animated.multiply(keyboardHeight, -1) }] }
                     ]}>
                         {currentUser?.id === storyUser.id && (
-                            <View style={styles.viewCountContainer}>
+                            <TouchableOpacity style={styles.viewCountContainer} onPress={() => handleOpenViewers(currentStory.id)}>
                                 <Icon name="eye-outline" size={16} color="#FFF" />
                                 <Text style={styles.viewCountText}>{currentStory.view_count || 0} views</Text>
-                            </View>
+                            </TouchableOpacity>
                         )}
 
                         {currentUser?.id !== storyUser.id && (
@@ -608,37 +639,82 @@ export default function StoryViewScreen() {
     };
 
     return (
-        <FlatList
-            ref={flatListRef}
-            data={allStoryGroups}
-            renderItem={renderUserStories}
-            keyExtractor={(item, index) => `user-${item.user.id}-${index}`}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            onMomentumScrollEnd={handleScroll}
-            scrollEventThrottle={16}
-            getItemLayout={(data, index) => ({
-                length: width,
-                offset: width * index,
-                index,
-            })}
-            onScrollToIndexFailed={(info) => {
-                // Handle scroll failures gracefully
-                if (flatListRef.current && isMounted.current) {
-                    setTimeout(() => {
-                        if (flatListRef.current && isMounted.current) {
-                            try {
-                                flatListRef.current.scrollToIndex({ index: info.index, animated: false });
-                            } catch (e) {
-                                // Ignore
+        <View style={styles.container}>
+            <FlatList
+                ref={flatListRef}
+                data={allStoryGroups}
+                renderItem={renderUserStories}
+                keyExtractor={(item, index) => `user-${item.user.id}-${index}`}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                onMomentumScrollEnd={handleScroll}
+                scrollEventThrottle={16}
+                getItemLayout={(data, index) => ({
+                    length: width,
+                    offset: width * index,
+                    index,
+                })}
+                onScrollToIndexFailed={(info) => {
+                    // Handle scroll failures gracefully
+                    if (flatListRef.current && isMounted.current) {
+                        setTimeout(() => {
+                            if (flatListRef.current && isMounted.current) {
+                                try {
+                                    flatListRef.current.scrollToIndex({ index: info.index, animated: false });
+                                } catch (e) {
+                                    // Ignore
+                                }
                             }
-                        }
-                    }, 100);
-                }
-            }}
-        />
+                        }, 100);
+                    }
+                }}
+            />
+
+            <Modal
+                isVisible={isViewersVisible}
+                onBackdropPress={handleCloseViewers}
+                onSwipeComplete={handleCloseViewers}
+                swipeDirection="down"
+                style={styles.modal}
+            >
+                <View style={[styles.modalContent, { backgroundColor: colors.background }]}>
+                    <View style={styles.modalHeader}>
+                        <Text style={[styles.modalTitle, { color: colors.text }]}>Viewers</Text>
+                        <TouchableOpacity onPress={handleCloseViewers}>
+                            <Icon name="close" size={24} color={colors.text} />
+                        </TouchableOpacity>
+                    </View>
+
+                    {isLoadingViewers ? (
+                        <ActivityIndicator style={{ margin: 20 }} color={colors.primary} />
+                    ) : viewersList.length > 0 ? (
+                        <FlatList
+                            data={viewersList}
+                            keyExtractor={(item, index) => `viewer-${item.id}-${index}`}
+                            renderItem={({ item }) => (
+                                <View style={styles.viewerRow}>
+                                    <Image
+                                        source={{ uri: item.avatar || (item as any).profile_picture_url || 'https://ui-avatars.com/api/?name=' + item.username }}
+                                        style={styles.viewerAvatar}
+                                    />
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[styles.viewerName, { color: colors.text }]}>@{item.username}</Text>
+                                    </View>
+                                    {(item as any).is_liked_by_viewer && (
+                                        <Icon name="heart" size={16} color="red" />
+                                    )}
+                                </View>
+                            )}
+                            contentContainerStyle={styles.viewersList}
+                        />
+                    ) : (
+                        <Text style={[styles.noViewersText, { color: colors.textSecondary }]}>No viewers yet.</Text>
+                    )}
+                </View>
+            </Modal>
+        </View>
     );
 }
 
@@ -668,14 +744,14 @@ const styles = StyleSheet.create({
         position: 'absolute',
         top: 0,
         width: '100%',
-        height: 150,
+        height: 1,
         backgroundColor: 'rgba(0,0,0,0.3)',
     },
     bottomOverlay: {
         position: 'absolute',
         bottom: 0,
         width: '100%',
-        height: 150,
+        height: 1,
         backgroundColor: 'rgba(0,0,0,0.3)',
     },
     topContainer: {
@@ -793,4 +869,48 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.3)',
     },
+    modal: {
+        justifyContent: 'flex-end',
+        margin: 0,
+    },
+    modalContent: {
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        padding: 20,
+        minHeight: height * 0.5,
+        maxHeight: height * 0.8,
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 20,
+    },
+    modalTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+    },
+    viewersList: {
+        paddingBottom: 20,
+    },
+    viewerRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 10,
+        gap: 12,
+    },
+    viewerAvatar: {
+        width: 40,
+        height: 40,
+        borderRadius: 10,
+    },
+    viewerName: {
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    noViewersText: {
+        textAlign: 'center',
+        marginTop: 40,
+        fontSize: 16,
+    }
 });

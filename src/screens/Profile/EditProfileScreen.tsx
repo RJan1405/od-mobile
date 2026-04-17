@@ -12,7 +12,9 @@ import {
     SafeAreaView,
     StatusBar,
     Platform,
+    KeyboardAvoidingView,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -97,23 +99,29 @@ export default function EditProfileScreen() {
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
             <StatusBar barStyle="dark-content" />
+            <KeyboardAwareScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }}
+                enableOnAndroid={true}
+                extraScrollHeight={100}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+            >
+                {/* Header */}
+                <View style={[styles.header, { borderBottomColor: colors.border }]}>
+                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                        <Icon name="close" size={26} color={colors.text} />
+                    </TouchableOpacity>
+                    <Text style={[styles.headerTitle, { color: colors.text }]}>Edit Profile</Text>
+                    <TouchableOpacity onPress={handleSave} disabled={loading}>
+                        {loading ? (
+                            <ActivityIndicator size="small" color={colors.primary} />
+                        ) : (
+                            <Text style={[styles.saveText, { color: colors.primary }]}>Done</Text>
+                        )}
+                    </TouchableOpacity>
+                </View>
 
-            {/* Header */}
-            <View style={[styles.header, { borderBottomColor: colors.border }]}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-                    <Icon name="close" size={26} color={colors.text} />
-                </TouchableOpacity>
-                <Text style={[styles.headerTitle, { color: colors.text }]}>Edit Profile</Text>
-                <TouchableOpacity onPress={handleSave} disabled={loading}>
-                    {loading ? (
-                        <ActivityIndicator size="small" color={colors.primary} />
-                    ) : (
-                        <Text style={[styles.saveText, { color: colors.primary }]}>Done</Text>
-                    )}
-                </TouchableOpacity>
-            </View>
-
-            <ScrollView showsVerticalScrollIndicator={false}>
                 {/* Cover Image */}
                 <TouchableOpacity onPress={handlePickCover} style={styles.coverContainer}>
                     <Image
@@ -176,7 +184,7 @@ export default function EditProfileScreen() {
                         />
                     </View>
                 </View>
-            </ScrollView>
+            </KeyboardAwareScrollView>
         </SafeAreaView>
     );
 }

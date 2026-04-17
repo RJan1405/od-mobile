@@ -774,6 +774,15 @@ class ApiService {
         }
     }
 
+    async getStoryViewers(storyId: number): Promise<ApiResponse<{ viewers: User[] }>> {
+        try {
+            const response = await this.api.get(`/api/story/${storyId}/viewers/`);
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
     async addStoryReply(storyId: number, content: string): Promise<ApiResponse> {
         try {
             const response = await this.api.post('/api/story/add-reply/', { story_id: storyId, content });

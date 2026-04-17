@@ -363,8 +363,12 @@ export default function HomeScreen() {
                     item.is_own && { borderColor: colors.primary, borderWidth: 2 }
                 ]}>
                     {hasValidAvatar ? (
-                        <Image
-                            source={{ uri: avatarUrl }}
+                        <FastImage
+                            source={{
+                                uri: avatarUrl,
+                                priority: FastImage.priority.normal,
+                                cache: FastImage.cacheControl.immutable
+                            }}
                             style={styles.storyAvatar}
                         />
                     ) : (
@@ -427,8 +431,12 @@ export default function HomeScreen() {
                 activeOpacity={0.7}
             >
                 <View style={styles.avatarContainer}>
-                    <Image
-                        source={{ uri: avatarUrl && avatarUrl.trim() !== '' ? avatarUrl : 'https://via.placeholder.com/50' }}
+                    <FastImage
+                        source={{
+                            uri: avatarUrl && avatarUrl.trim() !== '' ? avatarUrl : 'https://via.placeholder.com/50',
+                            priority: FastImage.priority.normal,
+                            cache: FastImage.cacheControl.immutable
+                        }}
                         style={styles.avatar}
                     />
                     {isOnline && <View style={[styles.onlineIndicator, { borderColor: colors.surface }]} />}
