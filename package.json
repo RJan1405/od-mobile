@@ -29,6 +29,7 @@
         "react-native-fast-image": "^8.6.3",
         "react-native-gesture-handler": "^2.16.0",
         "react-native-image-picker": "^7.1.2",
+        "react-native-incall-manager": "^4.2.1",
         "react-native-keyboard-aware-scroll-view": "^0.9.5",
         "react-native-mmkv": "^2.12.2",
         "react-native-modal": "^13.0.1",

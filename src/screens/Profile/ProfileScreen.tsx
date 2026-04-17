@@ -30,10 +30,11 @@ import ScribeCommentsSheet from '@/components/ScribeCommentsSheet';
 import OmzoCommentsSheet from '@/components/OmzoCommentsSheet';
 
 // Format counts like web version (1K, 1M)
-const formatCount = (count: number): string => {
-    if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M';
-    if (count >= 1000) return (count / 1000).toFixed(1) + 'K';
-    return count.toString();
+const formatCount = (count: number | undefined | null): string => {
+    const value = count || 0;
+    if (value >= 1000000) return (value / 1000000).toFixed(1) + 'M';
+    if (value >= 1000) return (value / 1000).toFixed(1) + 'K';
+    return value.toString();
 };
 
 export default function ProfileScreen() {

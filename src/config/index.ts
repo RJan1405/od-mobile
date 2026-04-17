@@ -5,8 +5,10 @@ import { API_BASE_URL, WS_BASE_URL } from '@env';
 // For physical phone: Use your computer's local IP (run: ipconfig)
 export const API_CONFIG = {
     // Hardcoding your PC's IP so WebRTC works outside of adb reverse
-    BASE_URL: API_BASE_URL || 'http://localhost:8000',
-    WS_URL: WS_BASE_URL || 'ws://localhost:8000',
+   // BASE_URL: API_BASE_URL || 'http://localhost:8000',
+   // WS_URL: WS_BASE_URL || 'ws://localhost:8000',
+        BASE_URL:'http://10.229.112.51:8000',
+        WS_URL: 'ws://10.229.112.51:8000',
     TIMEOUT: 30000,
 };
 

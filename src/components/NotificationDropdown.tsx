@@ -10,9 +10,10 @@ interface NotificationDropdownProps {
     onClose: () => void;
     onMarkAllRead: () => void;
     onNotificationPress: (notification: Notification) => void;
+    onManageRequest?: (username: string, action: 'accept' | 'decline', notificationId: number) => void;
 }
 
-export default function NotificationDropdown({ notifications, onClose, onMarkAllRead, onNotificationPress }: NotificationDropdownProps) {
+export default function NotificationDropdown({ notifications, onClose, onMarkAllRead, onNotificationPress, onManageRequest }: NotificationDropdownProps) {
     const { colors } = useThemeStore();
     const unreadCount = notifications.filter(n => !n.is_read).length;
 
@@ -20,6 +21,7 @@ export default function NotificationDropdown({ notifications, onClose, onMarkAll
         switch (type) {
             case 'like': return { name: 'heart', color: '#EF4444' };
             case 'follow': return { name: 'person-add', color: '#3B82F6' };
+            case 'follow_request': return { name: 'person-add-outline', color: '#F59E0B' };
             case 'comment': return { name: 'chatbox-ellipses', color: '#BE5FD9' };
             case 'repost': return { name: 'repeat', color: '#10B981' };
             case 'mention': return { name: 'at', color: '#26D9C6' };
@@ -63,6 +65,22 @@ export default function NotificationDropdown({ notifications, onClose, onMarkAll
                     <Text style={[styles.timeText, { color: colors.textSecondary }]}>
                         {formatDistanceToNow(new Date(item.created_at), { addSuffix: false }).replace('about ', '')} ago
                     </Text>
+                    {item.notification_type === 'follow_request' && sender && onManageRequest && (
+                        <View style={styles.actionButtons}>
+                            <TouchableOpacity
+                                style={[styles.actionButton, styles.acceptButton]}
+                                onPress={() => onManageRequest(sender.username, 'accept', item.id)}
+                            >
+                                <Text style={styles.actionButtonText}>Accept</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.actionButton, styles.declineButton, { borderColor: colors.border }]}
+                                onPress={() => onManageRequest(sender.username, 'decline', item.id)}
+                            >
+                                <Text style={[styles.actionButtonText, { color: colors.textSecondary }]}>Decline</Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
                 </View>
                 {!item.is_read && <View style={[styles.unreadDot, { backgroundColor: '#3B82F6' }]} />}
             </TouchableOpacity>
@@ -217,6 +235,31 @@ const styles = StyleSheet.create({
     emptyContainer: {
         padding: 40,
         alignItems: 'center',
+    },
+    actionButtons: {
+        flexDirection: 'row',
+        marginTop: 8,
+        gap: 8,
+    },
+    actionButton: {
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        justifyContent: 'center',
+        alignItems: 'center',
+        flex: 1,
+    },
+    acceptButton: {
+        backgroundColor: '#3B82F6',
+    },
+    declineButton: {
+        backgroundColor: 'transparent',
+        borderWidth: 1,
+    },
+    actionButtonText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#fff',
     },
 });
 

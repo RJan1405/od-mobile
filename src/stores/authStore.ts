@@ -18,8 +18,8 @@ interface AuthState {
     checkAvailability: (data: any) => Promise<{ success: boolean; error?: string }>;
     register: (data: any) => Promise<{ success: boolean; requiresOtp?: boolean; userId?: number; phoneNumber?: string }>;
     verifyPhoneOtp: (otp: string, userId?: number, phoneNumber?: string) => Promise<boolean>;
-    sendFirebaseOtp: (phone: string) => Promise<boolean>;
-    verifyFirebaseOtp: (code: string, registrationData: any) => Promise<boolean>;
+    registerAndSendEmailOtp: (registrationData: any) => Promise<boolean>;
+    verifyEmailOtp: (code: string, email: string) => Promise<boolean>;
     logout: () => Promise<void>;
     loadUser: () => Promise<void>;
     updateUser: (user: User) => void;
@@ -33,51 +33,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     error: null,
     confirmation: null,
 
-    sendFirebaseOtp: async (phone: string) => {
+    registerAndSendEmailOtp: async (registrationData: any) => {
         set({ isLoading: true, error: null });
         try {
-            // Use the namespaced API — suppressing deprecation warnings
-            // until we can fully migrate to react-native-firebase v23 modular API.
-            const firebaseAuth = require('@react-native-firebase/auth');
-            // The package exports the auth() factory as either default or the module itself
-            const authFactory = firebaseAuth.default ?? firebaseAuth;
-            if (typeof authFactory !== 'function') {
-                throw new Error('Firebase Auth native module not available. Please rebuild the app.');
+            const response = await api.register(registrationData);
+            if (response.success && response.requires_otp) {
+                set({ isLoading: false, error: null });
+                return true;
+            } else {
+                set({ error: response.error || 'Failed to send expected email OTP', isLoading: false });
+                return false;
             }
-            const confirmation = await authFactory().signInWithPhoneNumber(phone);
-            set({ confirmation, isLoading: false });
-            return true;
         } catch (error: any) {
-            console.error('Firebase SMS send error:', error);
-            set({ 
-                error: error.message || 'Failed to send SMS code', 
-                isLoading: false 
-            });
+            set({ error: error.message || 'Failed to register', isLoading: false });
             return false;
         }
     },
 
-    verifyFirebaseOtp: async (code: string, registrationData: any) => {
+    verifyEmailOtp: async (code: string, email: string) => {
         set({ isLoading: true, error: null });
         try {
-            const { confirmation } = get();
-            if (!confirmation) {
-                set({ error: 'No active confirmation session', isLoading: false });
-                return false;
-            }
-
-            // 1. Confirm the code with Firebase
-            const userCredential = await confirmation.confirm(code);
-            if (!userCredential?.user) {
-                set({ error: 'Firebase verification failed', isLoading: false });
-                return false;
-            }
-
-            // 2. Get the IdToken — use the instance method on the user object
-            const idToken = await userCredential.user.getIdToken();
-
-            // 3. Register user in our backend
-            const response = await api.firebaseRegister(idToken, registrationData);
+            const response = await api.verifyEmailOtp(code, email);
 
             if (response.success && response.user) {
                 set({
@@ -89,16 +65,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
                 return true;
             } else {
                 set({
-                    error: response.error || 'Backend registration failed',
+                    error: response.error || 'Verification failed',
                     isLoading: false,
                 });
                 return false;
             }
         } catch (error: any) {
-            console.error('Firebase OTP verify error:', error);
-            set({ 
-                error: error.message || 'Invalid or expired code', 
-                isLoading: false 
+            console.error('Email OTP verify error:', error);
+            set({
+                error: error.message || 'Invalid or expired code',
+                isLoading: false
             });
             return false;
         }
@@ -159,11 +135,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
             if (response.success && response.requires_otp) {
                 set({ isLoading: false });
-                return { 
-                    success: true, 
-                    requiresOtp: true, 
+                return {
+                    success: true,
+                    requiresOtp: true,
                     userId: response.user_id,
-                    phoneNumber: response.phone_number 
+                    phoneNumber: response.phone_number
                 };
             }
 

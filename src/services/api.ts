@@ -232,11 +232,10 @@ class ApiService {
         }
     }
 
-    async verifyPhoneOtp(otp: string, userId?: number, phoneNumber?: string): Promise<ApiResponse<User>> {
+    async verifyEmailOtp(otp: string, email: string): Promise<ApiResponse<User>> {
         try {
-            const response = await this.api.post('/api/verify-phone-otp/', {
-                user_id: userId,
-                phone_number: phoneNumber,
+            const response = await this.api.post('/api/verify-email-otp/', {
+                email,
                 otp
             });
             if (response.data.success && response.data.user) {

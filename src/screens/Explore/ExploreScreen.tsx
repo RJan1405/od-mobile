@@ -750,11 +750,11 @@ export default function ExploreScreen() {
         ));
     };
 
-    const formatCount = (count: number) => {
-        if (!count) return '0';
-        if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M';
-        if (count >= 1000) return (count / 1000).toFixed(1) + 'k';
-        return count.toString();
+    const formatCount = (count?: number | null) => {
+        const val = count || 0;
+        if (val >= 1000000) return (val / 1000000).toFixed(1) + 'M';
+        if (val >= 1000) return (val / 1000).toFixed(1) + 'k';
+        return val.toString();
     };
 
     // Handle repost on scribe in masonry grid

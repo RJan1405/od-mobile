@@ -296,6 +296,7 @@ export default function VideoCallScreen() {
                     streamURL={remoteStream.toURL()}
                     style={styles.remoteVideo}
                     objectFit="cover"
+                    zOrder={0}
                 />
             ) : (
                 <View style={styles.placeholderContainer}>
@@ -310,6 +311,8 @@ export default function VideoCallScreen() {
                         streamURL={localStream.toURL()}
                         style={styles.localVideo}
                         objectFit="cover"
+                        zOrder={1}
+                        mirror={true}
                     />
                 </View>
             )}

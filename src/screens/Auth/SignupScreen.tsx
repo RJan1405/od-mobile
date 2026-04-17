@@ -25,8 +25,8 @@ export default function SignupScreen() {
     const [lastname, setLastname] = useState('');
     const [countryCode, setCountryCode] = useState('+91');
     const [phoneNumber, setPhoneNumber] = useState('');
-    
-    const { sendFirebaseOtp, checkAvailability, isLoading, error } = useAuthStore();
+
+    const { registerAndSendEmailOtp, checkAvailability, isLoading, error } = useAuthStore();
     const { colors } = useThemeStore();
     const navigation = useNavigation<any>();
 
@@ -67,7 +67,7 @@ export default function SignupScreen() {
         // Combine country code and phone number
         let rawPhone = (countryCode + phoneNumber).trim().replace(/\s+/g, '');
         let formattedPhone = rawPhone;
-        
+
         if (!formattedPhone.startsWith('+')) {
             formattedPhone = '+' + formattedPhone;
         }
@@ -78,16 +78,16 @@ export default function SignupScreen() {
             return;
         }
 
-        const success = await sendFirebaseOtp(formattedPhone);
+        const success = await registerAndSendEmailOtp(registrationData);
 
         if (success) {
-            navigation.navigate('OTP', { 
-                phoneNumber: formattedPhone, 
+            navigation.navigate('OTP', {
+                email: email,
                 registrationData,
-                isFirebase: true 
+                isEmail: true
             });
         } else if (error) {
-            Alert.alert('Verification Error', typeof error === 'string' ? error : 'Failed to send SMS');
+            Alert.alert('Verification Error', typeof error === 'string' ? error : 'Failed to send OTP');
         }
     };
 
@@ -98,8 +98,8 @@ export default function SignupScreen() {
         >
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
                 <View style={styles.content}>
-                    <TouchableOpacity 
-                        style={styles.backButton} 
+                    <TouchableOpacity
+                        style={styles.backButton}
                         onPress={() => navigation.goBack()}
                     >
                         <Icon name="arrow-back" size={24} color={colors.text} />
@@ -185,7 +185,7 @@ export default function SignupScreen() {
                                 editable={!isLoading}
                             />
                         </View>
-                        
+
                         <View style={styles.row}>
                             <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
                                 <TextInput

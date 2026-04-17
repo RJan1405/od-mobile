@@ -5,6 +5,7 @@ import {
     mediaDevices,
     MediaStream,
 } from 'react-native-webrtc';
+import InCallManager from 'react-native-incall-manager';
 import websocket from './websocket';
 
 class WebRTCService {
@@ -14,14 +15,11 @@ class WebRTCService {
     private iceCandidatesQueue: any[] = [];
     private localIceCandidates: any[] = [];
     private hasProcessedOffer = false;
+    private hasProcessedAnswer = false;
     public isConnected = false;
     private configuration = {
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' },
-            { urls: 'stun:stun3.l.google.com:19302' },
-            { urls: 'stun:stun4.l.google.com:19302' },
             {
                 urls: [
                     'turn:openrelay.metered.ca:80',
@@ -32,12 +30,19 @@ class WebRTCService {
                 credential: 'openrelayproject'
             }
         ],
+        iceTransportPolicy: 'all' as RTCIceTransportPolicy,
     };
 
     private onRemoteStreamCallback: ((stream: MediaStream) => void) | null = null;
     private onCallEndCallback: (() => void) | null = null;
     private onConnectionStateCallback: ((state: string) => void) | null = null;
     private signalSender: ((signal: any) => void) | null = null;
+
+    // Optional helper to manually reset the signal processing state for testing or new calls
+    resetSignalState() {
+        this.hasProcessedOffer = false;
+        this.hasProcessedAnswer = false;
+    }
 
     async setupLocalStream(isVideo: boolean) {
         try {
@@ -165,6 +170,11 @@ class WebRTCService {
 
     async startCall(isVideo: boolean) {
         console.log(`[WebRTC] Starting ${isVideo ? 'video' : 'voice'} call...`);
+        if (InCallManager) {
+            InCallManager.start({ media: isVideo ? 'video' : 'audio' });
+        } else {
+            console.warn('[WebRTC] InCallManager is null, make sure you have rebuilt the native app.');
+        }
         this.createPeerConnection();
         const offer = await this.peerConnection.createOffer();
         await this.peerConnection.setLocalDescription(offer);
@@ -210,24 +220,31 @@ class WebRTCService {
 
         try {
             console.log('[WebRTC] Handling offer...');
-            this.createPeerConnection();
-            this.hasProcessedOffer = true;
 
             // Check if sdp is a string (legacy/mobile direct) or object (web/new)
             const remoteSdp = typeof sdp === 'string' ? { type: 'offer', sdp } : sdp;
+            const isVideo = remoteSdp.sdp && remoteSdp.sdp.includes('m=video');
+            if (InCallManager) {
+                InCallManager.start({ media: isVideo ? 'video' : 'audio' });
+            } else {
+                console.warn('[WebRTC] InCallManager is null, make sure you have rebuilt the native app.');
+            }
+
+            this.createPeerConnection();
+            this.hasProcessedOffer = true;
 
             console.log('[WebRTC] Setting remote description...');
             await this.peerConnection.setRemoteDescription(
                 new RTCSessionDescription(remoteSdp as any)
             );
 
+            // 🔥 Immediately process ICE candidates after remote desc is set
+            await this.processQueuedCandidates();
+
             console.log('[WebRTC] Creating answer...');
             const answer = await this.peerConnection.createAnswer();
             console.log('[WebRTC] Setting local description (answer)...');
             await this.peerConnection.setLocalDescription(answer);
-
-            // Process queued ice candidates AFTER both descriptions are set
-            await this.processQueuedCandidates();
 
             if (this.signalSender) {
                 console.log('[WebRTC] Sending answer signal');
@@ -246,27 +263,41 @@ class WebRTCService {
     }
 
     async handleAnswer(sdp: any) {
+        if (this.hasProcessedAnswer) {
+            console.log('[WebRTC] Answer already processed, skipping duplicate');
+            return;
+        }
+
         try {
             console.log('[WebRTC] Handling answer...');
             if (this.peerConnection) {
+                this.hasProcessedAnswer = true;
                 console.log('[WebRTC] Current signalingState:', this.peerConnection.signalingState);
-                if (this.peerConnection.signalingState !== 'have-local-offer') {
-                    console.log('⚠️ [WebRTC] Warning: Skipping Answer because signaling state is', this.peerConnection.signalingState);
+                if (this.peerConnection.signalingState === 'stable') {
+                    console.log('⚠️ [WebRTC] Warning: Skipping Answer because signaling state is already stable');
                     return;
                 }
                 const remoteSdp = typeof sdp === 'string' ? { type: 'answer', sdp } : sdp;
+
+                // Extra check for remote description
+                if (this.peerConnection.remoteDescription) {
+                    console.log('⚠️ [WebRTC] Warning: remoteDescription is already set. Skipping duplicate answer.');
+                    return;
+                }
+
                 console.log('[WebRTC] Setting remote description (answer)...');
                 await this.peerConnection.setRemoteDescription(
                     new RTCSessionDescription(remoteSdp as any)
                 );
 
-                // Process queued ice candidates after remote is set and we're stable
+                // 🔥 Immediately process ICE candidates after remote desc is set
                 await this.processQueuedCandidates();
             } else {
                 console.warn('[WebRTC] handleAnswer called but peerConnection is null');
             }
         } catch (error) {
             console.error('[WebRTC] Error in handleAnswer:', error);
+            this.hasProcessedAnswer = false; // Reset on failure
         }
     }
 
@@ -317,6 +348,8 @@ class WebRTCService {
     }
 
     endCall() {
+        this.resetSignalState();
+
         if (!this.peerConnection && !this.localStream) return;
 
         // Forcefully close, no early return as users expect "End Call" to actually end it
@@ -340,10 +373,19 @@ class WebRTCService {
             this.peerConnection = null;
         }
 
+        try {
+            if (InCallManager) {
+                InCallManager.stop();
+            }
+        } catch (e) {
+            console.error('Error stopping InCallManager', e);
+        }
+
         this.remoteStream = null;
         this.iceCandidatesQueue = [];
         this.localIceCandidates = [];
         this.hasProcessedOffer = false;
+        this.hasProcessedAnswer = false;
         this.isConnected = false;
     }
 

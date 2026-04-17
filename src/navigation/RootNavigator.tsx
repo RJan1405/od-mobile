@@ -114,6 +114,7 @@ function MainTabs() {
                     tabBarInactiveTintColor: colors.textSecondary,
                     headerStyle: {
                         backgroundColor: colors.surface,
+                        borderBottomWidth: 0,
                     },
                     headerTintColor: colors.text,
                     headerShadowVisible: false,
@@ -198,6 +199,7 @@ export function RootNavigator() {
                 screenOptions={{
                     headerStyle: {
                         backgroundColor: colors.surface,
+                        borderBottomWidth: 0,
                     },
                     headerTintColor: colors.text,
                     headerShadowVisible: false,

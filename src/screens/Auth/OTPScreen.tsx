@@ -21,13 +21,13 @@ export default function OTPScreen() {
     const [resendTimer, setResendTimer] = useState(60);
     const inputs = useRef<Array<TextInput | null>>([]);
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-    
-    const { verifyPhoneOtp, verifyFirebaseOtp, sendFirebaseOtp, isLoading, error } = useAuthStore();
+
+    const { verifyPhoneOtp, verifyEmailOtp, registerAndSendEmailOtp, isLoading, error } = useAuthStore();
     const { colors } = useThemeStore();
     const navigation = useNavigation<any>();
     const route = useRoute<any>();
-    
-    const { userId, phoneNumber, registrationData, isFirebase } = route.params || {};
+
+    const { userId, phoneNumber, email, registrationData, isEmail, isFirebase } = route.params || {};
 
     // Start the resend countdown
     useEffect(() => {
@@ -44,9 +44,15 @@ export default function OTPScreen() {
     }, []);
 
     const handleResend = async () => {
-        if (resendTimer > 0 || !phoneNumber) return;
+        if (resendTimer > 0) return;
         setOtp(['', '', '', '', '', '']);
-        const success = await sendFirebaseOtp(phoneNumber);
+        let success = false;
+        if ((isEmail || isFirebase) && registrationData) {
+            success = await registerAndSendEmailOtp(registrationData);
+        } else if (phoneNumber) {
+            // handle SMS resend if applicable in the future
+        }
+
         if (success) {
             setResendTimer(60);
             timerRef.current = setInterval(() => {
@@ -109,8 +115,8 @@ export default function OTPScreen() {
         }
 
         let success = false;
-        if (isFirebase) {
-            success = await verifyFirebaseOtp(code, registrationData);
+        if (isEmail || isFirebase) {
+            success = await verifyEmailOtp(code, email);
         } else {
             success = await verifyPhoneOtp(code, userId, phoneNumber);
         }
@@ -127,8 +133,8 @@ export default function OTPScreen() {
                 style={styles.content}
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             >
-                <TouchableOpacity 
-                    style={styles.backButton} 
+                <TouchableOpacity
+                    style={styles.backButton}
                     onPress={() => navigation.goBack()}
                 >
                     <Icon name="arrow-back" size={24} color={colors.text} />
@@ -139,11 +145,11 @@ export default function OTPScreen() {
                 </View>
 
                 <Text style={[styles.title, { color: colors.text }]}>
-                    Verify Phone
+                    {isEmail ? 'Verify Email' : 'Verify Phone'}
                 </Text>
                 <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
                     We've sent a 6-digit code to{'\n'}
-                    <Text style={{ fontWeight: 'bold', color: colors.text }}>{phoneNumber || 'your registered number'}</Text>
+                    <Text style={{ fontWeight: 'bold', color: colors.text }}>{email || phoneNumber || 'your registered account'}</Text>
                 </Text>
 
                 <View style={styles.otpContainer}>

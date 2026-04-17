@@ -230,6 +230,18 @@ export default function HomeScreen() {
         }
     };
 
+    const handleManageRequest = async (username: string, action: 'accept' | 'decline', notificationId: number) => {
+        try {
+            const response = await api.manageFollowRequest(username, action);
+            if (response.success) {
+                // Remove or update the notification locally
+                setNotifications(prev => prev.filter(n => n.id !== notificationId));
+            }
+        } catch (error) {
+            console.error(`Error ${action}ing follow request:`, error);
+        }
+    };
+
     const handleNotificationPress = (notification: Notification) => {
         // Mark as read
         const updated = notifications.map(n =>
@@ -274,7 +286,7 @@ export default function HomeScreen() {
     const filteredChats = chats.filter(chat => {
         let isTabMatch = false;
         const isPrivateList = privateChatIds.includes(chat.id);
-        
+
         if (activeTab === 'private') {
             isTabMatch = isPrivateList;
         } else if (activeTab === 'public') {
@@ -525,7 +537,7 @@ export default function HomeScreen() {
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => navigation.navigate('MyProfile' as never)}>
                         <FastImage
-                            source={{ 
+                            source={{
                                 uri: user?.profile_picture_url || 'https://via.placeholder.com/40',
                                 priority: FastImage.priority.high,
                                 cache: FastImage.cacheControl.immutable,
@@ -543,6 +555,7 @@ export default function HomeScreen() {
                     onClose={() => setShowNotifications(false)}
                     onMarkAllRead={handleMarkAllRead}
                     onNotificationPress={handleNotificationPress}
+                    onManageRequest={handleManageRequest}
                 />
             )}
 

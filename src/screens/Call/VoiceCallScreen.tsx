@@ -19,6 +19,7 @@ import { API_CONFIG } from '@/config';
 import websocket from '@/services/websocket';
 import webrtc from '@/services/webrtc';
 import api from '@/services/api';
+import { buildFullUrl } from '@/utils/api-helpers';
 
 export default function VoiceCallScreen() {
     const route = useRoute();
@@ -245,7 +246,7 @@ export default function VoiceCallScreen() {
                 <StatusBar barStyle="light-content" />
                 <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center', marginTop: 100 }}>
                     <Image
-                        source={{ uri: user?.profile_picture_url || user?.avatar || 'https://via.placeholder.com/150' }}
+                        source={{ uri: buildFullUrl(user?.profile_picture_url || user?.avatar) || 'https://via.placeholder.com/150' }}
                         style={{ width: 140, height: 140, borderRadius: 70, marginBottom: 20, borderWidth: 3, borderColor: '#fff' }}
                     />
                     <Text style={{ color: '#FFF', fontSize: 28, fontWeight: 'bold' }}>{user?.full_name || user?.username || 'User'}</Text>
@@ -281,7 +282,7 @@ export default function VoiceCallScreen() {
                 <View style={styles.avatarWrapper}>
                     <View style={styles.avatarBorder}>
                         <Image
-                            source={{ uri: user?.profile_picture_url || 'https://via.placeholder.com/150' }}
+                            source={{ uri: buildFullUrl(user?.profile_picture_url || user?.avatar) || 'https://via.placeholder.com/150' }}
                             style={styles.avatar}
                         />
                     </View>
