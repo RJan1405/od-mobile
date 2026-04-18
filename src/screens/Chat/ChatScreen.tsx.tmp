@@ -58,7 +58,6 @@ const MessageImage = ({ uri, showText, isImage }: { uri: string; showText: boole
                 height: undefined,
                 aspectRatio: Math.max(0.4, Math.min(aspectRatio, 2.5)),
                 resizeMode: 'cover', // Parent handles overflow and borderRadius
-                backgroundColor: 'rgba(0,0,0,0.05)' // Light gray placeholder while loading
             }}
         />
     );
@@ -570,22 +569,13 @@ export default function ChatScreen() {
                 setIsTyping(false);
                 websocketService.sendTypingStatus(chatId, false);
 
-                const currentReplyId = replyToMessage?.id;
-                const wasOneTime = isOneTimeMode;
-
-                // Reset UI states immediately for speed
-                setReplyToMessage(null);
-                setIsOneTimeMode(false); // Reset OTV mode
-                flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
-
-                // Send background network request without awaiting 
-                sendMessage(chatId, content, pickedFile.uri, {
+                // ... replaced wait
                     name: pickedFile.name || 'document',
                     type: pickedFile.type || 'application/octet-stream'
-                }, wasOneTime, currentReplyId).catch((error: any) => {
-                    console.error('Error sending file:', error);
-                    Alert.alert('Upload Failed', error.message || 'Failed to send file');
-                });
+                }, isOneTimeMode, replyToMessage?.id).catch(e => console.log(e));
+                setReplyToMessage(null);
+                setIsOneTimeMode(false); // Reset OTV mode
+                flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
             }
         } catch (err: any) {
             if (DocumentPicker.isCancel(err)) {
@@ -895,8 +885,8 @@ export default function ChatScreen() {
                                 styles.messageBubble,
                                 isOwn ? styles.ownBubble : styles.otherBubble,
                                 {
-                                    backgroundColor: (isImage && !showText && !item.reply_to && !storyReplyData) ? 'transparent' : (isOwn ? colors.primary : '#FFFFFF'),
-                                    borderColor: isOwn ? ((isImage && !showText && !item.reply_to && !storyReplyData) ? 'transparent' : colors.primary) : colors.border,
+                                    backgroundColor: isOwn ? colors.primary : '#FFFFFF',
+                                    borderColor: isOwn ? colors.primary : colors.border,
                                     borderWidth: isOwn ? 0 : 1,
                                     paddingVertical: (item.shared_scribe || item.shared_omzo || sharedLinkData) ? 0 : (isImage || isVideo) ? 0 : 12,
                                     paddingHorizontal: (item.shared_scribe || item.shared_omzo || sharedLinkData || isImage || isVideo) ? 0 : 16,
@@ -1934,4 +1924,3 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
 });
-

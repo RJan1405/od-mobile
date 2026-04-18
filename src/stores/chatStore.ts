@@ -3,6 +3,7 @@ import type { Chat, Message } from '@/types';
 import api from '@/services/api';
 import websocket from '@/services/websocket';
 import { buildFullUrl } from '@/utils/api-helpers';
+import { useAuthStore } from '@/stores/authStore';
 
 interface ChatState {
     chats: Chat[];
@@ -192,10 +193,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
             console.log('📝 Transformed to', transformedMessages.length, 'messages');
 
-            const messages = get().messages;
-            messages.set(chatId, transformedMessages);
+            // Save in inverted order so newest is always at index 0, preventing UI lag
+            const invertedMessages = transformedMessages.reverse();
 
-            set({ messages: new Map(messages) });
+            const messages = get().messages;
+            const newMessagesMap = new Map(messages);
+            newMessagesMap.set(chatId, invertedMessages);
+
+            set({ messages: newMessagesMap });
         } catch (error) {
             console.error('❌ Error loading messages:', error);
             // Set empty array on error
@@ -260,8 +265,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 return;
             }
 
-            messages.set(chatId, [...chatMessages, normalizedMessage]);
-            set({ messages: new Map(messages) });
+            // Must create new array reference for FlatList to detect changes
+            const newChatMessages = [normalizedMessage, ...chatMessages];
+
+            // Must create new Map reference for Zustand to trigger subscribers
+            const newMessagesMap = new Map(messages);
+            newMessagesMap.set(chatId, newChatMessages);
+
+            set({ messages: newMessagesMap });
         } catch (error) {
             console.error('Error adding message:', error, message);
         }
@@ -273,94 +284,140 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const updatedMessages = chatMessages.map(msg =>
             msg.id === messageId ? { ...msg, ...updates } : msg
         );
-        messages.set(chatId, updatedMessages);
-        set({ messages: new Map(messages) });
+        const newMessagesMap = new Map(messages);
+        newMessagesMap.set(chatId, updatedMessages);
+        set({ messages: newMessagesMap });
     },
 
     removeMessage: (chatId: number, messageId: number) => {
         const messages = get().messages;
         const chatMessages = messages.get(chatId) || [];
         const filteredMessages = chatMessages.filter(msg => msg.id !== messageId);
-        messages.set(chatId, filteredMessages);
-        set({ messages: new Map(messages) });
+        const newMessagesMap = new Map(messages);
+        newMessagesMap.set(chatId, filteredMessages);
+        set({ messages: newMessagesMap });
     },
 
     sendMessage: async (chatId: number, content: string, mediaUri?: string, mediaParams?: { name: string, type: string }, oneTime: boolean = false, replyToId?: number) => {
-        try {
-            console.log('📤 Sending message:', { chatId, content, mediaUri, oneTime, replyToId });
-            const formData = new FormData();
-            formData.append('chat_id', chatId.toString());
-            formData.append('content', content);
-            if (oneTime) {
-                formData.append('one_time', 'true');
-            }
-            if (replyToId) {
-                console.log('🔗 Attaching reply to ID:', replyToId);
-                formData.append('reply_to_id', replyToId.toString());
-                formData.append('reply_to', replyToId.toString());
-            }
+        const tempId = Date.now() + Math.floor(Math.random() * 1000); // Temporary ID for optimistic UI
+        const state = get();
+        const userStr = useAuthStore.getState().user;
+        const user = typeof userStr === 'string' ? JSON.parse(userStr) : userStr;
 
-            if (mediaUri) {
-                const filename = mediaParams?.name || mediaUri.split('/').pop() || 'media';
+        // 1. Create Optimistic Message
+        const optimisticMessage = {
+            id: tempId,
+            chat: chatId,
+            sender: {
+                id: user?.id || 0,
+                username: user?.username || 'me',
+                full_name: user?.full_name || 'Me',
+                profile_picture_url: user?.profile_picture_url || '',
+                is_verified: false,
+                is_online: true,
+            } as any,
+            content: content,
+            message_type: mediaUri ? 'media' : 'text',
+            media_url: mediaUri, // Local URI for preview
+            media_type: mediaParams?.type,
+            media_filename: mediaParams?.name,
+            timestamp: new Date().toISOString(),
+            is_read: false,
+            one_time: oneTime,
+            is_edited: false,
+            reply_to: replyToId,
+            status: 'sending' // Add visual indicator if UI supports it
+        };
 
-                let type = mediaParams?.type;
-                if (!type) {
-                    const match = /\.(\w+)$/.exec(filename);
-                    type = match ? `image/${match[1]}` : 'image';
+        // 2. Add to UI immediately
+        console.log('⚡ Optimistic update: Adding message to UI', optimisticMessage);
+        state.addMessage(chatId, optimisticMessage);
+
+        // Defer network heavy lifting to allow UI to flush and show the message bubble instantly
+        return new Promise((resolve, reject) => {
+            setTimeout(async () => {
+                try {
+                    console.log('📤 Sending message to server:', { chatId, content, mediaUri, oneTime, replyToId });
+                    const formData = new FormData();
+                    formData.append('chat_id', chatId.toString());
+                    formData.append('content', content);
+                    if (oneTime) {
+                        formData.append('one_time', 'true');
+                    }
+                    if (replyToId) {
+                        formData.append('reply_to_id', replyToId.toString());
+                        formData.append('reply_to', replyToId.toString());
+                    }
+
+                    if (mediaUri) {
+                        const filename = mediaParams?.name || mediaUri.split('/').pop() || 'media';
+
+                        let type = mediaParams?.type;
+                        if (!type) {
+                            const match = /\.([a-zA-Z0-9]+)$/.exec(filename);
+                            type = match ? `image/${match[1]}` : 'image';
+                        }
+
+                        formData.append('media', {
+                            uri: mediaUri,
+                            name: filename,
+                            type,
+                        } as any);
+                    }
+
+                    const response = await api.sendMessage(formData);
+                    console.log('📬 Send message response:', response);
+
+                    // Backend returns { success: true, message: {...} }
+                    if (response.success && (response as any).message) {
+                        const m = (response as any).message;
+
+                        // 3. Replace temporary message with actual message from server
+                        const confirmedMessage = {
+                            id: m.id,
+                            chat: chatId,
+                            sender: {
+                                id: m.sender_id,
+                                username: m.sender,
+                                full_name: m.sender_name,
+                                profile_picture_url: buildFullUrl(m.sender_avatar || ''),
+                                is_verified: false,
+                                is_online: false,
+                            } as any,
+                            content: m.content,
+                            message_type: m.message_type || 'text',
+                            media_url: m.media_url ? buildFullUrl(m.media_url) : undefined,
+                            media_type: m.media_type,
+                            media_filename: m.media_filename,
+                            timestamp: m.timestamp_iso || m.timestamp || new Date().toISOString(),
+                            is_read: m.is_read || false,
+                            one_time: m.one_time || false,
+                            consumed_at: undefined,
+                            is_edited: false,
+                            edited_at: undefined,
+                            reply_to: m.reply_to,
+                            shared_scribe: m.shared_scribe,
+                            shared_omzo: m.shared_omzo,
+                        };
+
+                        console.log('✅ Message confirmed, updating store for tempId:', tempId);
+                        // Remove temporary message and add actual message to ensure ID changes correctly
+                        get().removeMessage(chatId, tempId);
+                        get().addMessage(chatId, confirmedMessage);
+                        resolve(response);
+                    } else {
+                        console.error('❌ Send message failed:', response);
+                        // 4. Handle Failure: remove optimistic message or mark as failed
+                        get().removeMessage(chatId, tempId);
+                        reject(new Error(response.error || 'Failed to send message'));
+                    }
+                } catch (error) {
+                    console.error('❌ Error sending message:', error);
+                    get().removeMessage(chatId, tempId);
+                    reject(error);
                 }
-
-                formData.append('media', {
-                    uri: mediaUri,
-                    name: filename,
-                    type,
-                } as any);
-            }
-
-            const response = await api.sendMessage(formData);
-            console.log('📬 Send message response:', response);
-
-            // Backend returns { success: true, message: {...} }
-            if (response.success && (response as any).message) {
-                const m = (response as any).message;
-
-                // Transform and add the sent message to the store
-                const sentMessage = {
-                    id: m.id,
-                    chat: chatId,
-                    sender: {
-                        id: m.sender_id,
-                        username: m.sender,
-                        full_name: m.sender_name,
-                        profile_picture_url: buildFullUrl(m.sender_avatar || ''),
-                        is_verified: false,
-                        is_online: false,
-                    } as any,
-                    content: m.content,
-                    message_type: m.message_type || 'text',
-                    media_url: m.media_url ? buildFullUrl(m.media_url) : undefined,
-                    media_type: m.media_type,
-                    media_filename: m.media_filename,
-                    timestamp: m.timestamp_iso || m.timestamp || new Date().toISOString(),
-                    is_read: m.is_read || false,
-                    one_time: m.one_time || false,
-                    consumed_at: undefined,
-                    is_edited: false,
-                    edited_at: undefined,
-                    reply_to: m.reply_to,
-                    shared_scribe: m.shared_scribe,
-                    shared_omzo: m.shared_omzo,
-                };
-
-                console.log('✅ Message sent, adding to store:', sentMessage);
-                get().addMessage(chatId, sentMessage);
-            } else {
-                console.error('❌ Send message failed:', response);
-                throw new Error(response.error || 'Failed to send message');
-            }
-        } catch (error) {
-            console.error('❌ Error sending message:', error);
-            throw error;
-        }
+            }, 10); // 10ms yield to React Native Bridge
+        });
     },
 
     consumeMessage: async (chatId: number, messageId: number) => {
@@ -388,8 +445,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     clearMessages: (chatId: number) => {
         const messages = get().messages;
-        messages.delete(chatId);
-        set({ messages: new Map(messages) });
+        const newMessagesMap = new Map(messages);
+        newMessagesMap.delete(chatId);
+        set({ messages: newMessagesMap });
     },
 
     markMessagesAsRead: async (chatId: number, messageIds?: number[]) => {

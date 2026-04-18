@@ -368,7 +368,7 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
             <View style={styles.topBar}>
                 <Text style={styles.topTitle}>Omzo</Text>
                 <TouchableOpacity style={styles.menuCircle} onPress={handleMoreActions}>
-                    <Icon name="ellipsis-vertical" size={20} color="#FFFFFF" />
+                    <Icon name="ellipsis-vertical" size={26} color="#FFFFFF" style={{ textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 }} />
                 </TouchableOpacity>
             </View>
 
@@ -379,8 +379,9 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
             >
                 <Icon
                     name={isMuted ? "volume-mute" : "volume-high"}
-                    size={28}
+                    size={32}
                     color="#FFFFFF"
+                    style={{ textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 }}
                 />
             </TouchableOpacity>
 
@@ -451,8 +452,9 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
                     <View style={styles.actionIconContainer}>
                         <Icon
                             name={isLiked ? 'heart' : 'heart-outline'}
-                            size={26}
+                            size={34}
                             color={isLiked ? '#FF3B5C' : '#FFFFFF'}
+                            style={styles.iconShadow}
                         />
                     </View>
                     <Text style={styles.actionCount}>{formatCount(likeCount)}</Text>
@@ -461,21 +463,19 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
                 {/* Comment */}
                 <TouchableOpacity style={styles.actionButton} onPress={handleComments} activeOpacity={0.7}>
                     <View style={styles.actionIconContainer}>
-                        <Icon name="chatbubble-outline" size={26} color="#FFFFFF" />
+                        <Icon name="chatbubble-outline" size={32} color="#FFFFFF" style={styles.iconShadow} />
                     </View>
                     <Text style={styles.actionCount}>{formatCount(commentCount)}</Text>
                 </TouchableOpacity>
 
                 {/* Repost */}
                 <TouchableOpacity style={styles.actionButton} onPress={handleRepost} activeOpacity={0.7}>
-                    <View style={[
-                        styles.actionIconContainer,
-                        isReposted && { backgroundColor: 'rgba(16,185,129,0.35)', borderColor: 'rgba(16,185,129,0.5)' }
-                    ]}>
+                    <View style={styles.actionIconContainer}>
                         <Icon
                             name={isReposted ? 'repeat' : 'repeat-outline'}
-                            size={24}
+                            size={32}
                             color={isReposted ? '#10B981' : '#FFFFFF'}
+                            style={styles.iconShadow}
                         />
                     </View>
                     <Text style={[styles.actionCount, isReposted && { color: '#10B981' }]}>
@@ -486,7 +486,7 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
                 {/* Share */}
                 <TouchableOpacity style={styles.actionButton} onPress={handleShare} activeOpacity={0.7}>
                     <View style={styles.actionIconContainer}>
-                        <Icon name="paper-plane-outline" size={24} color="#FFFFFF" style={{ marginLeft: -2, marginTop: 2 }} />
+                        <Icon name="paper-plane-outline" size={32} color="#FFFFFF" style={[{ marginLeft: -2, marginTop: 2 }, styles.iconShadow]} />
                     </View>
                 </TouchableOpacity>
 
@@ -495,8 +495,9 @@ export default function OmzoCard({ omzo, isActive, containerHeight, onSaveToggle
                     <View style={styles.actionIconContainer}>
                         <Icon
                             name={isSaved ? 'bookmark' : 'bookmark-outline'}
-                            size={24}
+                            size={32}
                             color={isSaved ? '#FFFFFF' : '#FFFFFF'}
+                            style={styles.iconShadow}
                         />
                     </View>
                 </TouchableOpacity>
@@ -596,10 +597,6 @@ const styles = StyleSheet.create({
     menuCircle: {
         width: 36,
         height: 36,
-        borderRadius: 18,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.15)',
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -610,8 +607,6 @@ const styles = StyleSheet.create({
         top: Platform.OS === 'ios' ? 100 : 70,
         right: 16,
         zIndex: 10,
-        backgroundColor: 'rgba(0, 0, 0, 0.4)',
-        borderRadius: 20,
         width: 40,
         height: 40,
         justifyContent: 'center',
@@ -734,16 +729,17 @@ const styles = StyleSheet.create({
     actionIconContainer: {
         width: 44,
         height: 44,
-        borderRadius: 22,
-        backgroundColor: 'rgba(0,0,0,0.4)',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.15)',
         justifyContent: 'center',
         alignItems: 'center',
     },
+    iconShadow: {
+        textShadowColor: 'rgba(0, 0, 0, 0.6)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 6,
+    },
     actionCount: {
         color: '#FFFFFF',
-        fontSize: 12,
+        fontSize: 13,
         fontWeight: '700',
         textShadowColor: 'rgba(0, 0, 0, 0.75)',
         textShadowOffset: { width: 0, height: 1 },
