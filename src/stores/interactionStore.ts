@@ -26,24 +26,31 @@ export const useInteractionStore = create<InteractionStore>((set, get) => ({
 
     setInteraction: (type, id, newState) => {
         const key = `${type}_${id}`;
-        set(state => ({
-            interactions: {
-                ...state.interactions,
-                [key]: {
-                    ...(state.interactions[key] || {
-                        is_liked: false,
-                        like_count: 0,
-                        is_disliked: false,
-                        dislike_count: 0,
-                        is_saved: false,
-                        is_reposted: false,
-                        repost_count: 0,
-                        comment_count: 0
-                    }),
-                    ...newState
-                }
+        set(state => {
+            const current = state.interactions[key] || {
+                is_liked: false,
+                like_count: 0,
+                is_disliked: false,
+                dislike_count: 0,
+                is_saved: false,
+                is_reposted: false,
+                repost_count: 0,
+                comment_count: 0
+            };
+
+            // Only create new object if something actually changed
+            const updated = { ...current, ...newState };
+            if (JSON.stringify(current) === JSON.stringify(updated)) {
+                return state; // No change, don't update
             }
-        }));
+
+            return {
+                interactions: {
+                    ...state.interactions,
+                    [key]: updated
+                }
+            };
+        });
     },
 
     batchSetInteractions: (newStates) =>
@@ -54,23 +61,27 @@ export const useInteractionStore = create<InteractionStore>((set, get) => ({
     getInteraction: (type, id) => get().interactions[`${type}_${id}`],
     incrementCommentCount: (type, id) => {
         const key = `${type}_${id}`;
-        set(state => ({
-            interactions: {
-                ...state.interactions,
-                [key]: {
-                    ...(state.interactions[key] || {
-                        is_liked: false,
-                        like_count: 0,
-                        is_disliked: false,
-                        dislike_count: 0,
-                        is_saved: false,
-                        is_reposted: false,
-                        repost_count: 0,
-                        comment_count: 0
-                    }),
-                    comment_count: (state.interactions[key]?.comment_count || 0) + 1
+        set(state => {
+            const current = state.interactions[key] || {
+                is_liked: false,
+                like_count: 0,
+                is_disliked: false,
+                dislike_count: 0,
+                is_saved: false,
+                is_reposted: false,
+                repost_count: 0,
+                comment_count: 0
+            };
+
+            return {
+                interactions: {
+                    ...state.interactions,
+                    [key]: {
+                        ...current,
+                        comment_count: (current.comment_count || 0) + 1
+                    }
                 }
-            }
-        }));
+            };
+        });
     },
 }));

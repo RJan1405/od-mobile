@@ -6,6 +6,8 @@ import { RootNavigator } from '@/navigation/RootNavigator';
 import { useAuthStore } from '@/stores/authStore';
 import { useThemeStore } from '@/stores/themeStore';
 import { THEME_INFO } from '@/config';
+import { usePendingActionsRecovery } from '@/hooks/usePendingActionsRecovery';
+import { useInteractionCache } from '@/stores/interactionCache';
 
 import websocket from '@/services/websocket';
 import { navigationRef } from '@/navigation/RootNavigator';
@@ -55,6 +57,9 @@ function App(): React.JSX.Element {
         // Load saved theme and user data on app start
         loadTheme();
         loadUser();
+
+        // Load interaction cache from persistent storage
+        useInteractionCache.getState().loadFromCache();
     }, []);
 
     const themeInfo = THEME_INFO[theme];
@@ -66,11 +71,18 @@ function App(): React.JSX.Element {
                     barStyle={themeInfo.isDark ? 'light-content' : 'dark-content'}
                     backgroundColor={colors.background}
                 />
+                <PendingActionsRecoveryHandler />
                 <GlobalCallHandler />
                 <RootNavigator />
             </SafeAreaProvider>
         </GestureHandlerRootView>
     );
+}
+
+// Component to handle pending actions recovery
+function PendingActionsRecoveryHandler() {
+    usePendingActionsRecovery();
+    return null;
 }
 
 export default App;

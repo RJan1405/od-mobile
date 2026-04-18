@@ -115,7 +115,16 @@ export default function ExploreScreen() {
     useEffect(() => {
         if (!hasLoadedRef.current) {
             hasLoadedRef.current = true;
-            loadExploreFeed(1);
+            (async () => {
+                try {
+                    const cached = await api.getCached('/streams/explore/', { page: 1 });
+                    if (cached && cached.success && cached.results) {
+                        setExploreFeed(cached.results);
+                        setHasMore(cached.has_more || false);
+                    }
+                } catch (e) { }
+                loadExploreFeed(1);
+            })();
         }
 
         const scribePostedListener = DeviceEventEmitter.addListener('SCRIBE_POSTED', () => {

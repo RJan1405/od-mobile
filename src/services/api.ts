@@ -1,8 +1,11 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { MMKV } from 'react-native-mmkv';
 import { API_CONFIG, STORAGE_KEYS } from '@/config';
 import websocketService from '@/services/websocket';
 import type { ApiResponse, User, Chat, Message, Scribe, Comment, Omzo, OmzoComment, Story, Notification, PaginatedResponse } from '@/types';
+
+export const apiCache = new MMKV({ id: 'api-cache' });
 
 // Helper function to convert relative media URLs to absolute URLs
 function convertToAbsoluteUrl(url: string | null | undefined): string {
@@ -132,6 +135,16 @@ class ApiService {
                     response.data = processMediaUrls(response.data);
                 }
 
+                if (response.config.method === 'get' && response.config.url) {
+                    try {
+                        let cacheKey = '@api_cache_' + response.config.url;
+                        if (response.config.params) {
+                            cacheKey += JSON.stringify(response.config.params);
+                        }
+                        apiCache.set(cacheKey, JSON.stringify(response.data));
+                    } catch (e) { }
+                }
+
                 return response;
             },
             async (error: AxiosError) => {
@@ -143,6 +156,23 @@ class ApiService {
                 return Promise.reject(error);
             }
         );
+    }
+
+    // ==================== CACHE MANAGEMENT ====================
+    async getCached<T = any>(url: string, params?: any): Promise<T | null> {
+        let cacheKey = '@api_cache_' + url;
+        if (params) {
+            try {
+                cacheKey += JSON.stringify(params);
+            } catch (e) { }
+        }
+        try {
+            const cachedValue = apiCache.getString(cacheKey);
+            if (cachedValue) {
+                return JSON.parse(cachedValue);
+            }
+        } catch (e) { }
+        return null;
     }
 
     // ==================== AUTHENTICATION ====================

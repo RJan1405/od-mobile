@@ -129,11 +129,11 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
             const res = await api.globalSearch(query);
             const r = res as any;
             const users: User[] = r?.users || r?.data?.users || r?.results?.users || r?.data?.results || r?.results || [];
-            
+
             // Local fallback: also filter existing lists for better UX
             const lowerQuery = query.toLowerCase();
-            const localMatches = [...recentUsers, ...followingUsers].filter(u => 
-                u.username.toLowerCase().includes(lowerQuery) || 
+            const localMatches = [...recentUsers, ...followingUsers].filter(u =>
+                u.username.toLowerCase().includes(lowerQuery) ||
                 (u.full_name && u.full_name.toLowerCase().includes(lowerQuery))
             );
 
@@ -152,29 +152,34 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
     };
 
     const handleSendToUser = async (user: User) => {
+        // Show loading state immediately
         setSendingStates(prev => ({ ...prev, [user.id]: true }));
-        try {
-            const chatRes = await api.createChat(user.username);
+
+        // Send in background - don't block UI
+        api.createChat(user.username).then(chatRes => {
             if (chatRes.success && chatRes.data) {
                 const chatId = chatRes.data.chatId;
-                const shareMessage = contentType === 'omzo' 
+                const shareMessage = contentType === 'omzo'
                     ? `Check out this video: ${contentUrl || `https://odnix.com/omzo/${contentId}/`}`
                     : `Check out this post: ${contentUrl || `https://odnix.com/scribe/${contentId}/`}`;
-                
+
                 const formData = new FormData();
                 formData.append('chat_id', chatId.toString());
                 formData.append('content', shareMessage);
                 formData.append('share_type', contentType);
                 formData.append('share_id', contentId.toString());
 
-                await api.sendMessage(formData);
-                setSendingStates(prev => ({ ...prev, [user.id]: false }));
-                onShareSuccess?.();
+                return api.sendMessage(formData);
+            } else {
+                throw new Error('Failed to create chat');
             }
-        } catch (error) {
+        }).then(() => {
+            setSendingStates(prev => ({ ...prev, [user.id]: false }));
+            onShareSuccess?.();
+        }).catch(error => {
             console.error('Send error:', error);
             setSendingStates(prev => ({ ...prev, [user.id]: false }));
-        }
+        });
     };
 
     const handleCopyLink = () => {
@@ -235,7 +240,7 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
 
     const getListData = () => {
         if (searchQuery.length > 0) return searchResults;
-        
+
         const integrated: any[] = [];
         if (recentUsers.length > 0) {
             integrated.push({ type: 'header', title: 'Recent' });
@@ -259,13 +264,13 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
                 <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
                 <View style={[styles.sheet, { backgroundColor: '#0F172A' }]}>
                     <View style={styles.indicatorContainer}>
-                         <View style={styles.indicator} />
+                        <View style={styles.indicator} />
                     </View>
 
                     <View style={styles.header}>
                         <Text style={[styles.title, { color: '#FFFFFF' }]}>Share to</Text>
-                        <TouchableOpacity 
-                            style={styles.closeBtn} 
+                        <TouchableOpacity
+                            style={styles.closeBtn}
                             onPress={onClose}
                             activeOpacity={0.7}
                         >
@@ -289,7 +294,7 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
                     ) : (
                         <FlatList
                             data={getListData()}
-                            renderItem={({item}) => {
+                            renderItem={({ item }) => {
                                 if (item.type === 'header') {
                                     return (
                                         <Text style={[styles.sectionTitle, { color: '#64748B' }]}>

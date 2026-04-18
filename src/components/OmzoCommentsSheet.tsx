@@ -11,6 +11,7 @@ import {
     ActivityIndicator,
     Image,
     ScrollView,
+    Keyboard,
 } from 'react-native';
 import Modal from 'react-native-modal';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -69,7 +70,27 @@ export default function OmzoCommentsSheet({
 
     useEffect(() => {
         if (isVisible) {
-            loadComments();
+            (async () => {
+                try {
+                    const cached = await api.getCached(`/streams/omzo/${omzoId}/comments/`);
+                    if (cached && cached.success && (cached as any).comments) {
+                        const fetchedComments = (cached as any).comments;
+                        const commentMap = new Map();
+                        const rootComments: any[] = [];
+                        fetchedComments.forEach((c: any) => commentMap.set(c.id, { ...c, replies: [] }));
+                        fetchedComments.forEach((c: any) => {
+                            const current = commentMap.get(c.id);
+                            if (c.parent && commentMap.has(c.parent)) {
+                                commentMap.get(c.parent).replies.push(current);
+                            } else if (!c.parent) {
+                                rootComments.push(current);
+                            }
+                        });
+                        setComments(rootComments.length > 0 ? rootComments : fetchedComments);
+                    }
+                } catch (e) { }
+                loadComments();
+            })();
         }
     }, [isVisible, omzoId]);
 
@@ -80,7 +101,7 @@ export default function OmzoCommentsSheet({
             console.log('📝 Omzo comments response:', response);
             if (response.success && (response as any).comments) {
                 const fetchedComments = (response as any).comments;
-                
+
                 // Group comments if they are flat and have parent references
                 const commentMap = new Map();
                 const rootComments: any[] = [];
@@ -109,55 +130,74 @@ export default function OmzoCommentsSheet({
     };
 
     const handleAddComment = async () => {
-        if (!commentText.trim() || isSubmitting) return;
+        const text = commentText.trim();
+        if (!text || isSubmitting) return;
 
-        setIsSubmitting(true);
-        try {
-            const response = await api.addOmzoComment(omzoId, commentText.trim(), replyingTo?.id);
-            console.log('📝 Add comment response:', response);
+        const currentReplyingTo = replyingTo;
+
+        // Clear UI immediately - don't wait
+        setCommentText('');
+        setReplyingTo(null);
+        Keyboard.dismiss();
+
+        const optimisticId = Date.now() + Math.random();
+        const optimisticComment = {
+            id: optimisticId,
+            content: text,
+            user: user,
+            created_at: new Date().toISOString(),
+            parent: currentReplyingTo?.id || null,
+            like_count: 0,
+            is_liked: false,
+            replies: [],
+        };
+
+        // Add comment to UI IMMEDIATELY
+        if (currentReplyingTo) {
+            setComments(prev => prev.map(c => {
+                if (c.id === currentReplyingTo.id || (c as any).replies?.some((r: any) => r.id === currentReplyingTo.id)) {
+                    if (c.id === currentReplyingTo.id) {
+                        if (!expandedComments.has(c.id)) toggleReplies(c.id);
+                        return { ...c, replies: [...((c as any).replies || []), optimisticComment] };
+                    } else {
+                        return {
+                            ...c,
+                            replies: ((c as any).replies || []).map((r: any) =>
+                                r.id === currentReplyingTo.id ? { ...r, replies: [...(r.replies || []), optimisticComment] } : r
+                            )
+                        };
+                    }
+                }
+                return c;
+            }));
+        } else {
+            setComments(prev => [optimisticComment as any, ...prev]);
+            setTimeout(() => {
+                scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+            }, 100);
+        }
+
+        incrementCommentCount('omzo', omzoId);
+        if (onCommentAdded) onCommentAdded();
+
+        // Send API in background - don't block UI
+        api.addOmzoComment(omzoId, text, currentReplyingTo?.id).then(response => {
             if (response.success && (response as any).comment) {
                 const newComment = { ...(response as any).comment, replies: [] };
-                
-                if (replyingTo) {
-                    // Update state to nest the reply
-                    setComments(prev => prev.map(c => {
-                        if (c.id === replyingTo.id || (c as any).replies?.some((r: any) => r.id === replyingTo.id)) {
-                             // If it's a direct reply or a reply to a reply
-                             if (c.id === replyingTo.id) {
-                                if (!expandedComments.has(c.id)) toggleReplies(c.id);
-                                return { ...c, replies: [...(c as any).replies, newComment] };
-                             } else {
-                                // Nested search (though we only support 1 level usually)
-                                return {
-                                    ...c,
-                                    replies: (c as any).replies.map((r: any) => 
-                                        r.id === replyingTo.id ? { ...r, replies: [...(r.replies || []), newComment] } : r
-                                    )
-                                };
-                             }
-                        }
-                        return c;
-                    }));
-                } else {
-                    setComments(prev => [newComment, ...prev]);
-                }
-
-                setCommentText('');
-                setReplyingTo(null);
-
-                // Update global store
-                incrementCommentCount('omzo', omzoId);
-
-                // Notify parent component
-                if (onCommentAdded) {
-                    onCommentAdded();
-                }
+                setComments(prev => prev.map(c => {
+                    if (c.id === optimisticId) return newComment;
+                    if ((c as any).replies?.length > 0) {
+                        return {
+                            ...c,
+                            replies: (c as any).replies.map((r: any) => r.id === optimisticId ? newComment : r)
+                        };
+                    }
+                    return c;
+                }));
             }
-        } catch (error) {
+        }).catch(error => {
             console.error('Error adding comment:', error);
-        } finally {
-            setIsSubmitting(false);
-        }
+        });
     };
 
     const handleReply = (comment: OmzoComment) => {
@@ -230,14 +270,14 @@ export default function OmzoCommentsSheet({
 
                     {/* Render Replies Toggle */}
                     {!isReply && replies.length > 0 && (
-                        <TouchableOpacity 
-                            style={styles.viewRepliesButton} 
+                        <TouchableOpacity
+                            style={styles.viewRepliesButton}
                             onPress={() => toggleReplies(item.id)}
                         >
                             <View style={[styles.repliesLine, { backgroundColor: colors.border }]} />
                             <Text style={[styles.viewRepliesText, { color: colors.textSecondary }]}>
-                                {expandedComments.has(item.id) 
-                                    ? 'Hide replies' 
+                                {expandedComments.has(item.id)
+                                    ? 'Hide replies'
                                     : `View ${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}`}
                             </Text>
                         </TouchableOpacity>
@@ -303,6 +343,7 @@ export default function OmzoCommentsSheet({
                     ) : (
                         <ScrollView
                             ref={scrollViewRef}
+                            keyboardShouldPersistTaps="handled"
                             onScroll={(e) => setScrollOffset(e.nativeEvent.contentOffset.y)}
                             scrollEventThrottle={16}
                             showsVerticalScrollIndicator={true}
@@ -329,45 +370,51 @@ export default function OmzoCommentsSheet({
                             </TouchableOpacity>
                         </View>
                     )}
-                    <View style={[styles.inputContainer, { borderTopColor: colors.border }]}>
-                        {user?.profile_picture_url ? (
-                            <Image
-                                source={{ uri: user.profile_picture_url }}
-                                style={styles.userAvatar}
-                            />
-                        ) : (
-                            <View style={[styles.userAvatar, { backgroundColor: colors.primary }]}>
-                                <Text style={styles.avatarText}>
-                                    {user?.username?.[0]?.toUpperCase() || '?'}
-                                </Text>
-                            </View>
-                        )}
-                        <TextInput
-                            ref={inputRef}
-                            style={[styles.input, { color: colors.text, backgroundColor: colors.background }]}
-                            placeholder={replyingTo ? "Add a reply..." : "Add a comment..."}
-                            placeholderTextColor={colors.textSecondary}
-                            value={commentText}
-                            onChangeText={setCommentText}
-                            multiline
-                            maxLength={500}
-                        />
-                        <TouchableOpacity
-                            onPress={handleAddComment}
-                            disabled={!commentText.trim() || isSubmitting}
-                            style={styles.sendButton}
-                        >
-                            {isSubmitting ? (
-                                <ActivityIndicator size="small" color={colors.primary} />
-                            ) : (
-                                <Icon
-                                    name="send"
-                                    size={24}
-                                    color={commentText.trim() ? colors.primary : colors.textSecondary}
+                    <ScrollView
+                        scrollEnabled={false}
+                        keyboardShouldPersistTaps="always"
+                        nestedScrollEnabled={false}
+                    >
+                        <View style={[styles.inputContainer, { borderTopColor: colors.border }]}>
+                            {user?.profile_picture_url ? (
+                                <Image
+                                    source={{ uri: user.profile_picture_url }}
+                                    style={styles.userAvatar}
                                 />
+                            ) : (
+                                <View style={[styles.userAvatar, { backgroundColor: colors.primary }]}>
+                                    <Text style={styles.avatarText}>
+                                        {user?.username?.[0]?.toUpperCase() || '?'}
+                                    </Text>
+                                </View>
                             )}
-                        </TouchableOpacity>
-                    </View>
+                            <TextInput
+                                ref={inputRef}
+                                style={[styles.input, { color: colors.text, backgroundColor: colors.background }]}
+                                placeholder={replyingTo ? "Add a reply..." : "Add a comment..."}
+                                placeholderTextColor={colors.textSecondary}
+                                value={commentText}
+                                onChangeText={setCommentText}
+                                multiline
+                                maxLength={500}
+                            />
+                            <TouchableOpacity
+                                onPress={handleAddComment}
+                                disabled={!commentText.trim() || isSubmitting}
+                                style={styles.sendButton}
+                            >
+                                {isSubmitting ? (
+                                    <ActivityIndicator size="small" color={colors.primary} />
+                                ) : (
+                                    <Icon
+                                        name="send"
+                                        size={24}
+                                        color={commentText.trim() ? colors.primary : colors.textSecondary}
+                                    />
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    </ScrollView>
                 </KeyboardAvoidingView>
             </View>
         </Modal>

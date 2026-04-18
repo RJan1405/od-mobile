@@ -11,6 +11,7 @@ import {
     ActivityIndicator,
     Image,
     ScrollView,
+    Keyboard,
 } from 'react-native';
 import Modal from 'react-native-modal';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -35,7 +36,7 @@ export default function ScribeCommentsSheet({
     initialCommentCount,
     onCommentAdded,
 }: ScribeCommentsSheetProps) {
-     const { colors, theme } = useThemeStore();
+    const { colors, theme } = useThemeStore();
     const { user } = useAuthStore();
     const incrementCommentCount = useInteractionStore(state => state.incrementCommentCount);
     const [comments, setComments] = useState<Comment[]>([]);
@@ -69,7 +70,15 @@ export default function ScribeCommentsSheet({
 
     useEffect(() => {
         if (isVisible) {
-            loadComments();
+            (async () => {
+                try {
+                    const cached = await api.getCached(`/scribes/${scribeId}/comments/`);
+                    if (cached && cached.success && (cached as any).comments) {
+                        setComments((cached as any).comments);
+                    }
+                } catch (e) { }
+                loadComments();
+            })();
         }
     }, [isVisible, scribeId]);
 
@@ -89,45 +98,63 @@ export default function ScribeCommentsSheet({
     };
 
     const handleAddComment = async () => {
-        if (!commentText.trim() || isSubmitting) return;
+        const text = commentText.trim();
+        if (!text || isSubmitting) return;
 
+        const currentReplyingTo = replyingTo;
+        
         setIsSubmitting(true);
-        try {
-            const response = await api.addComment(
-                scribeId, 
-                commentText.trim(),
-                replyingTo?.id
-            );
-            console.log('📝 Add comment response:', response);
-             if (response.success && (response as any).comment) {
-                const newComment = (response as any).comment;
-                
-                if (replyingTo) {
-                    // Update the local state to show the reply in the correct place
-                    setComments(prev => prev.map(c => {
-                        if (c.id === replyingTo.id) {
-                            return {
-                                ...c,
-                                replies: [...(c.replies || []), newComment],
-                                reply_count: (c.reply_count || 0) + 1
-                            };
-                        }
-                        return c;
-                    }));
-                } else {
-                    setComments(prev => [newComment, ...prev]);
-                }
-                
-                setCommentText('');
-                setReplyingTo(null);
-                
-                // Update global store for real-time sync across screens
-                incrementCommentCount('scribe', scribeId);
+        setCommentText('');
+        setReplyingTo(null);
+        Keyboard.dismiss();
 
-                // Notify parent component
-                if (onCommentAdded) {
-                    onCommentAdded();
+        const optimisticId = Date.now() + Math.random();
+        const optimisticComment = {
+            id: optimisticId,
+            content: text,
+            user: user,
+            created_at: new Date().toISOString(),
+            parent: currentReplyingTo?.id || null,
+            like_count: 0,
+            is_liked: false,
+            replies: [],
+        };
+
+        if (currentReplyingTo) {
+            setComments(prev => prev.map(c => {
+                if (c.id === currentReplyingTo.id) {
+                    return {
+                        ...c,
+                        replies: [...(c.replies || []), optimisticComment as any],
+                        reply_count: (c.reply_count || 0) + 1
+                    };
                 }
+                return c;
+            }));
+        } else {
+            setComments(prev => [optimisticComment as any, ...prev]);
+            setTimeout(() => {
+                scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+            }, 100);
+        }
+
+        incrementCommentCount('scribe', scribeId);
+        if (onCommentAdded) onCommentAdded();
+
+        try {
+            const response = await api.addComment(scribeId, text, currentReplyingTo?.id);
+            if (response.success && (response as any).comment) {
+                const newComment = (response as any).comment;   
+                setComments(prev => prev.map(c => {
+                    if (c.id === optimisticId) return newComment;
+                    if ((c as any).replies?.length > 0) {
+                        return {
+                            ...c,
+                            replies: c.replies.map((r: any) => r.id === optimisticId ? newComment : r)
+                        };
+                    }
+                    return c;
+                }));
             }
         } catch (error) {
             console.error('Error adding comment:', error);
@@ -196,8 +223,8 @@ export default function ScribeCommentsSheet({
                             </Text>
                         </TouchableOpacity>
                         {!isReply && (
-                            <TouchableOpacity 
-                                style={styles.actionButton} 
+                            <TouchableOpacity
+                                style={styles.actionButton}
                                 activeOpacity={0.7}
                                 onPress={() => handleReply(item)}
                             >
@@ -208,15 +235,15 @@ export default function ScribeCommentsSheet({
 
                     {/* Render Replies Toggle */}
                     {!isReply && (item as any).replies && (item as any).replies.length > 0 && (
-                        <TouchableOpacity 
-                            style={styles.viewRepliesButton} 
+                        <TouchableOpacity
+                            style={styles.viewRepliesButton}
                             onPress={() => toggleReplies(item.id)}
                         >
                             <View style={[styles.repliesLine, { backgroundColor: colors.border }]} />
                             <Text style={[styles.viewRepliesText, { color: colors.textSecondary }]}>
-                                {expandedComments.has(item.id) 
-                                    ? 'Hide replies' 
-                                    : `View ${(item as any).replies.length} ${ (item as any).replies.length === 1 ? 'reply' : 'replies'}`}
+                                {expandedComments.has(item.id)
+                                    ? 'Hide replies'
+                                    : `View ${(item as any).replies.length} ${(item as any).replies.length === 1 ? 'reply' : 'replies'}`}
                             </Text>
                         </TouchableOpacity>
                     )}
@@ -279,7 +306,7 @@ export default function ScribeCommentsSheet({
                             </Text>
                         </View>
                     ) : (
-                        <ScrollView
+                        <ScrollView keyboardShouldPersistTaps="handled"
                             ref={scrollViewRef}
                             onScroll={(e) => setScrollOffset(e.nativeEvent.contentOffset.y)}
                             scrollEventThrottle={16}
@@ -307,6 +334,11 @@ export default function ScribeCommentsSheet({
                             </TouchableOpacity>
                         </View>
                     )}
+                    <ScrollView
+                        scrollEnabled={false}
+                        keyboardShouldPersistTaps="always"
+                        nestedScrollEnabled={false}
+                    >
                     <View style={[styles.inputContainer, { borderTopColor: colors.border }]}>
                         {user?.profile_picture_url ? (
                             <Image
@@ -346,6 +378,7 @@ export default function ScribeCommentsSheet({
                             )}
                         </TouchableOpacity>
                     </View>
+                    </ScrollView>
                 </KeyboardAvoidingView>
             </View>
         </Modal>

@@ -109,7 +109,7 @@ const ScribeImage = ({ uri }: { uri: string }) => {
     );
 };
 
-export default React.memo(function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPress, onDelete }: ScribeCardProps) {
+export default function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPress, onDelete }: ScribeCardProps) {
     const navigation = useNavigation();
     const { colors } = useThemeStore();
     const { user: currentUser } = useAuthStore();
@@ -127,11 +127,9 @@ export default React.memo(function ScribeCard({ scribe, onSaveToggle, onPress, o
     const [showShareSheet, setShowShareSheet] = useState(false);
 
     // Global stores
+    const { interactions, setInteraction } = useInteractionStore();
     const interactionKey = `scribe_${displayScribe.id}`;
-    const storeInteraction = useInteractionStore(state => state.interactions[interactionKey]);
-    const setInteraction = useInteractionStore(state => state.setInteraction);
-
-    const interaction = storeInteraction || {
+    const interaction = interactions[interactionKey] || {
         is_liked: displayScribe.is_liked || false,
         like_count: displayScribe.like_count || 0,
         is_disliked: displayScribe.is_disliked || false,
@@ -173,7 +171,7 @@ export default React.memo(function ScribeCard({ scribe, onSaveToggle, onPress, o
 
     // Seed interaction store
     React.useEffect(() => {
-        if (storeInteraction === undefined && displayScribe.id) {
+        if (interactions[interactionKey] === undefined && displayScribe.id) {
             setInteraction('scribe', displayScribe.id, {
                 is_liked: displayScribe.is_liked || false,
                 like_count: displayScribe.like_count || 0,
@@ -185,7 +183,7 @@ export default React.memo(function ScribeCard({ scribe, onSaveToggle, onPress, o
                 comment_count: displayScribe.comment_count || 0
             });
         }
-    }, [displayScribe.id, storeInteraction, setInteraction]);
+    }, [displayScribe.id, interactions[interactionKey]]);
 
     const isOwnScribe = currentUser?.username === displayScribe.user?.username;
 
@@ -195,7 +193,7 @@ export default React.memo(function ScribeCard({ scribe, onSaveToggle, onPress, o
         // Optimistic update
         const newIsLiked = !isLiked;
         const newLikeCount = isLiked ? Math.max(0, likeCount - 1) : likeCount + 1;
-
+        
         // If we are liking, we can't be disliking
         const newIsDisliked = newIsLiked ? false : isDisliked;
         const newDislikeCount = (isLiked === false && isDisliked === true) ? Math.max(0, dislikeCount - 1) : dislikeCount;
@@ -235,7 +233,7 @@ export default React.memo(function ScribeCard({ scribe, onSaveToggle, onPress, o
         // Optimistic update
         const newIsDisliked = !isDisliked;
         const newDislikeCount = isDisliked ? Math.max(0, dislikeCount - 1) : dislikeCount + 1;
-
+        
         // If we are disliking, we can't be liking
         const newIsLiked = newIsDisliked ? false : isLiked;
         const newLikeCount = (isDisliked === false && isLiked === true) ? Math.max(0, likeCount - 1) : likeCount;
@@ -685,7 +683,7 @@ export default React.memo(function ScribeCard({ scribe, onSaveToggle, onPress, o
                 <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7} onPress={onCommentPress || onPress}>
                     <Icon name="chatbubble-outline" size={20} color={colors.textSecondary} />
                     <Text style={[styles.actionCount, { color: colors.textSecondary }]}>
-                        {formatCount(interaction.comment_count ?? displayScribe.comment_count ?? 0)}
+                        {formatCount(interactions[interactionKey]?.comment_count ?? displayScribe.comment_count ?? 0)}
                     </Text>
                 </TouchableOpacity>
 
@@ -752,7 +750,7 @@ export default React.memo(function ScribeCard({ scribe, onSaveToggle, onPress, o
             />
         </View>
     );
-});
+}
 
 const styles = StyleSheet.create({
     card: {
