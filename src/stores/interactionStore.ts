@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { InteractionStorage } from '@/services/mmkvStorage';
 
 export interface InteractionState {
     is_liked?: boolean;
@@ -44,6 +45,13 @@ export const useInteractionStore = create<InteractionStore>((set, get) => ({
                 return state; // No change, don't update
             }
 
+            // Auto-save to MMKV
+            try {
+                InteractionStorage.setInteraction(type, id, updated);
+            } catch (error) {
+                console.error('Failed to save interaction to MMKV:', error);
+            }
+
             return {
                 interactions: {
                     ...state.interactions,
@@ -53,10 +61,20 @@ export const useInteractionStore = create<InteractionStore>((set, get) => ({
         });
     },
 
-    batchSetInteractions: (newStates) =>
-        set(state => ({
-            interactions: { ...state.interactions, ...newStates }
-        })),
+    batchSetInteractions: (newStates) => {
+        set(state => {
+            // Auto-save all interactions to MMKV
+            try {
+                InteractionStorage.batchSetInteractions(newStates);
+            } catch (error) {
+                console.error('Failed to batch save interactions to MMKV:', error);
+            }
+
+            return {
+                interactions: { ...state.interactions, ...newStates }
+            };
+        });
+    },
 
     getInteraction: (type, id) => get().interactions[`${type}_${id}`],
     incrementCommentCount: (type, id) => {

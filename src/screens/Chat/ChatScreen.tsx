@@ -19,7 +19,7 @@ import {
 import Video from 'react-native-video';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import DocumentPicker from 'react-native-document-picker';
 import { useThemeStore } from '@/stores/themeStore';
 import { useChatStore } from '@/stores/chatStore';
@@ -212,7 +212,7 @@ export default function ChatScreen() {
     const navigation = useNavigation();
     const { colors } = useThemeStore();
     const { user } = useAuthStore();
-    const { messages, loadMessages, addMessage, removeMessage, sendMessage, chats, updateMessage, markChatAsRead, consumeMessage, manageChatAcceptance, loadChats } = useChatStore();
+    const { messages, loadMessages, loadMessagesFromCache, addMessage, removeMessage, sendMessage, chats, updateMessage, markChatAsRead, consumeMessage, manageChatAcceptance, loadChats } = useChatStore();
     const { chatId } = route.params as { chatId: number };
     const [isTyping, setIsTyping] = useState(false);
     const [otherTyping, setOtherTyping] = useState(false);
@@ -232,6 +232,7 @@ export default function ChatScreen() {
     const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
     const [isForwardModalVisible, setIsForwardModalVisible] = useState(false);
     const [messageToForward, setMessageToForward] = useState<Message | null>(null);
+    const [statusTicker, setStatusTicker] = useState(0); // Used to force-refresh "Last seen" ago string
     const flatListRef = useRef<FlatList>(null);
 
     const currentChat = chats.find(c => c.id === chatId);
@@ -264,6 +265,14 @@ export default function ChatScreen() {
         }
     }, []);
 
+    // Refresh "Last seen" string every 30 seconds
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setStatusTicker(prev => prev + 1);
+        }, 30000);
+        return () => clearInterval(interval);
+    }, []);
+
     const handleVoiceCall = () => {
         const targetUser = currentChat?.chat_type === 'private'
             ? currentChat.participants.find(p => p.id !== user?.id)
@@ -285,11 +294,13 @@ export default function ChatScreen() {
     };
 
     useLayoutEffect(() => {
-        const title = currentChat?.name || (currentChat?.participants?.[0]?.full_name || currentChat?.participants?.[0]?.username) || 'Chat';
+        const targetUser = currentChat?.chat_type === 'private'
+            ? currentChat.participants.find(p => p.id !== user?.id)
+            : null;
+        const title = currentChat?.name || (targetUser?.full_name || targetUser?.username) || 'Chat';
         const avatarUrl = currentChat?.chat_type === 'group'
             ? currentChat?.group_avatar
-            : currentChat?.participants?.[0]?.profile_picture_url;
-        const targetUser = currentChat?.participants?.[0];
+            : targetUser?.profile_picture_url;
 
         navigation.setOptions({
             headerTitle: '',
@@ -318,8 +329,29 @@ export default function ChatScreen() {
                                 )}
                             </View>
                             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
-                                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981', marginRight: 4 }} />
-                                <Text style={{ fontSize: 12, color: colors.textSecondary }}>Last seen recently</Text>
+                                {otherTyping ? (
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                        <Text style={{ fontSize: 12, color: '#10B981', fontWeight: '500' }}>typing...</Text>
+                                    </View>
+                                ) : (
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                        <View style={{
+                                            width: 7,
+                                            height: 7,
+                                            borderRadius: 3.5,
+                                            backgroundColor: targetUser?.is_online ? '#10B981' : '#8E8E93',
+                                            marginRight: 6
+                                        }} />
+                                        <Text style={{ fontSize: 12, color: colors.textSecondary }}>
+                                            {targetUser?.is_online
+                                                ? 'Online'
+                                                : targetUser?.last_seen
+                                                    ? `Last seen ${formatDistanceToNow(new Date(targetUser.last_seen), { addSuffix: true })}`
+                                                    : 'Offline'
+                                            }
+                                        </Text>
+                                    </View>
+                                )}
                             </View>
                         </View>
                     </TouchableOpacity>
@@ -342,9 +374,13 @@ export default function ChatScreen() {
                 </View>
             ),
         });
-    }, [navigation, currentChat, colors]);
+    }, [navigation, currentChat, colors, statusTicker, otherTyping]);
 
     useEffect(() => {
+        // Load from cache first (instant UI)
+        loadMessagesFromCache(chatId);
+
+        // Then refresh from API (fresh data)
         loadMessages(chatId);
 
         // Mark chat as read when opening

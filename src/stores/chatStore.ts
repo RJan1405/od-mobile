@@ -4,6 +4,7 @@ import api from '@/services/api';
 import websocket from '@/services/websocket';
 import { buildFullUrl } from '@/utils/api-helpers';
 import { useAuthStore } from '@/stores/authStore';
+import { ChatStorage, SyncMetadata } from '@/services/mmkvStorage';
 
 interface ChatState {
     chats: Chat[];
@@ -27,6 +28,12 @@ interface ChatState {
     updateUnreadCounts: () => Promise<void>;
     updateChatUnreadCount: (chatId: number, count: number) => void;
     manageChatAcceptance: (chatId: number, action: 'accept' | 'block') => Promise<void>;
+
+    // MMKV Persistence
+    loadChatsFromCache: () => void;
+    loadMessagesFromCache: (chatId: number) => void;
+    saveChatsToCache: () => void;
+    saveMessagesToCache: (chatId: number) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -71,6 +78,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                             full_name: chat.other_user.full_name,
                             profile_picture_url: buildFullUrl(chat.other_user.profile_picture),
                             is_online: chat.other_user.is_online,
+                            last_seen: chat.other_user.last_seen,
                             is_verified: chat.other_user.is_verified,
                         }] : [],
                         last_message: chat.last_message ? {
@@ -90,6 +98,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                         is_public: false,
                         created_at: new Date().toISOString(),
                         updated_at: new Date().toISOString(),
+                        user_marked_private: chat.user_marked_private ?? false,
                     };
 
                     console.log('📝 Transformed chat:', {
@@ -104,11 +113,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
                 console.log('📝 Transformed chats:', transformedChats);
                 set({ chats: transformedChats });
+
+                // 💾 Save to MMKV cache
+                ChatStorage.saveChats(transformedChats);
+                SyncMetadata.setLastSyncTime('chats', Date.now());
             } else {
                 console.log('❌ No chats data in response:', response);
+                // Load from cache if API fails
+                const cachedChats = ChatStorage.getChats();
+                if (cachedChats.length > 0) {
+                    console.log('📂 Using cached chats:', cachedChats.length);
+                    set({ chats: cachedChats });
+                }
             }
         } catch (error) {
             console.error('Error loading chats:', error);
+            // Load from cache if API fails
+            const cachedChats = ChatStorage.getChats();
+            if (cachedChats.length > 0) {
+                console.log('📂 Using cached chats due to error:', cachedChats.length);
+                set({ chats: cachedChats });
+            }
         } finally {
             set({ isLoading: false });
         }
@@ -149,17 +174,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
             }));
 
             // Transform to mobile format (matching React frontend logic)
+            const currentMessages = get().messages.get(chatId) || [];
             const transformedMessages = messagesData.map((m: any, index: number) => {
-                console.log(`📨 Message ${index}:`, {
-                    id: m.id,
-                    content: m.content,
-                    sender: m.sender,
-                    sender_id: m.sender_id,
-                    timestamp_iso: m.timestamp_iso
-                });
+                const messageId = m.id || 0;
+                
+                // STICKY READ STATUS: 
+                // If we already have this message locally and it's marked as read, 
+                // keep it as read even if the API response is slightly behind/stale.
+                const existingMessage = currentMessages.find(msg => msg.id === messageId);
+                const isReadLocally = existingMessage?.is_read || m.is_read || m.viewed || m.read || false;
 
                 return {
-                    id: m.id || (Date.now() + index),
+                    id: messageId || (Date.now() + index),
                     chat: chatId,
                     sender: {
                         id: m.sender_id || 0,
@@ -175,7 +201,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     media_type: m.media_type,
                     media_filename: m.media_filename,
                     timestamp: m.timestamp_iso || m.timestamp || new Date().toISOString(),
-                    is_read: m.is_read || m.viewed || false,
+                    is_read: isReadLocally,
                     one_time: m.one_time || false,
                     consumed_at: m.consumed ? (m.timestamp_iso || m.timestamp) : undefined,
                     is_edited: m.is_edited || false,
@@ -196,17 +222,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
             // Save in inverted order so newest is always at index 0, preventing UI lag
             const invertedMessages = transformedMessages.reverse();
 
-            const messages = get().messages;
-            const newMessagesMap = new Map(messages);
+            const currentMap = get().messages;
+            const newMessagesMap = new Map(currentMap);
             newMessagesMap.set(chatId, invertedMessages);
 
             set({ messages: newMessagesMap });
+
+            // 💾 Save to MMKV cache
+            ChatStorage.saveMessages(chatId, invertedMessages);
+            SyncMetadata.setLastSyncTime(`chat_messages_${chatId}`, Date.now());
         } catch (error) {
             console.error('❌ Error loading messages:', error);
-            // Set empty array on error
-            const messages = get().messages;
-            messages.set(chatId, []);
-            set({ messages: new Map(messages) });
+            // Try to load from cache
+            const cachedMessages = ChatStorage.getMessages(chatId);
+            if (cachedMessages.length > 0) {
+                console.log('📂 Using cached messages for chat', chatId);
+                const messages = get().messages;
+                const newMessagesMap = new Map(messages);
+                newMessagesMap.set(chatId, cachedMessages);
+                set({ messages: newMessagesMap });
+            } else {
+                // Set empty array on error
+                const messages = get().messages;
+                messages.set(chatId, []);
+                set({ messages: new Map(messages) });
+            }
         } finally {
             set({ isLoading: false });
         }
@@ -273,6 +313,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
             newMessagesMap.set(chatId, newChatMessages);
 
             set({ messages: newMessagesMap });
+
+            // 💾 Save to MMKV cache
+            ChatStorage.saveMessages(chatId, newChatMessages);
         } catch (error) {
             console.error('Error adding message:', error, message);
         }
@@ -287,6 +330,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const newMessagesMap = new Map(messages);
         newMessagesMap.set(chatId, updatedMessages);
         set({ messages: newMessagesMap });
+
+        // 💾 Save to MMKV cache so status (like read/green ticks) persists!
+        ChatStorage.saveMessages(chatId, updatedMessages);
     },
 
     removeMessage: (chatId: number, messageId: number) => {
@@ -296,6 +342,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const newMessagesMap = new Map(messages);
         newMessagesMap.set(chatId, filteredMessages);
         set({ messages: newMessagesMap });
+
+        // 💾 Update MMKV cache
+        ChatStorage.saveMessages(chatId, filteredMessages);
     },
 
     sendMessage: async (chatId: number, content: string, mediaUri?: string, mediaParams?: { name: string, type: string }, oneTime: boolean = false, replyToId?: number) => {
@@ -581,5 +630,44 @@ export const useChatStore = create<ChatState>((set, get) => ({
         } catch (error) {
             console.error('Error in manageChatAcceptance:', error);
         }
+    },
+
+    // ✅ MMKV CACHE METHODS
+    loadChatsFromCache: () => {
+        console.log('📂 Loading chats from MMKV cache...');
+        const cachedChats = ChatStorage.getChats();
+        if (cachedChats.length > 0) {
+            set({ chats: cachedChats });
+            console.log('✅ Loaded', cachedChats.length, 'chats from cache');
+        }
+    },
+
+    loadMessagesFromCache: (chatId: number) => {
+        console.log(`📂 Loading messages from MMKV cache for chat ${chatId}...`);
+        const cachedMessages = ChatStorage.getMessages(chatId);
+        if (cachedMessages.length > 0) {
+            const messages = get().messages;
+            const newMessagesMap = new Map(messages);
+            newMessagesMap.set(chatId, cachedMessages);
+            set({ messages: newMessagesMap });
+            console.log(`✅ Loaded ${cachedMessages.length} messages from cache`);
+        }
+    },
+
+    saveChatsToCache: () => {
+        console.log('💾 Saving chats to MMKV cache...');
+        const chats = get().chats;
+        ChatStorage.saveChats(chats);
+        SyncMetadata.setLastSyncTime('chats', Date.now());
+        console.log(`✅ Saved ${chats.length} chats to cache`);
+    },
+
+    saveMessagesToCache: (chatId: number) => {
+        console.log(`💾 Saving messages to MMKV cache for chat ${chatId}...`);
+        const messages = get().messages;
+        const chatMessages = messages.get(chatId) || [];
+        ChatStorage.saveMessages(chatId, chatMessages);
+        SyncMetadata.setLastSyncTime(`chat_messages_${chatId}`, Date.now());
+        console.log(`✅ Saved ${chatMessages.length} messages to cache`);
     },
 }));

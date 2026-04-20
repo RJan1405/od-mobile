@@ -57,6 +57,10 @@ export default function SearchScreen() {
 
     const renderUserItem = ({ item }: { item: User }) => {
         const profilePic = item.profile_picture_url || item.profile_picture || '';
+        const isGif = profilePic.toLowerCase().endsWith('.gif');
+        const profilePicWithBuster = isGif && profilePic
+            ? `${profilePic}${profilePic.includes('?') ? '&' : '?'}t=${Date.now()}`
+            : profilePic;
         const hasValidPic = profilePic && profilePic.startsWith('http');
 
         return (
@@ -66,7 +70,11 @@ export default function SearchScreen() {
             >
                 <View style={styles.avatarWrapper}>
                     {hasValidPic ? (
-                        <Image source={{ uri: profilePic }} style={styles.avatar} />
+                        <Image
+                            source={{ uri: profilePicWithBuster }}
+                            style={styles.avatar}
+                            key={isGif ? `gif-${Date.now()}` : 'static'}
+                        />
                     ) : (
                         <View style={[styles.avatar, styles.avatarPlaceholder, { backgroundColor: colors.primary }]}>
                             <Text style={styles.avatarText}>{item.username[0].toUpperCase()}</Text>

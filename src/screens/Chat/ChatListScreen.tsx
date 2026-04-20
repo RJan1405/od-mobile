@@ -23,13 +23,17 @@ export default function ChatListScreen() {
     const navigation = useNavigation();
     const { colors } = useThemeStore();
     const { user } = useAuthStore();
-    const { chats, loadChats, isLoading, updateUnreadCounts } = useChatStore();
+    const { chats, loadChats, loadChatsFromCache, isLoading, updateUnreadCounts } = useChatStore();
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [activeTab, setActiveTab] = useState<TabType>('private');
 
     useEffect(() => {
+        // Load from cache first (instant UI)
+        loadChatsFromCache();
+        updateUnreadCounts();
+
+        // Then refresh from API (fresh data)
         loadChats();
-        updateUnreadCounts(); // Load unread counts on mount
     }, []);
 
     // Refresh unread counts periodically
@@ -74,9 +78,12 @@ export default function ChatListScreen() {
     };
 
     const filteredChats = chats.filter(chat => {
-        if (activeTab === 'private') return chat.chat_type === 'private';
+        // User-marked private chats
+        if (activeTab === 'private') return chat.user_marked_private ?? false;
+        // Group chats
         if (activeTab === 'groups') return chat.chat_type === 'group';
-        return true; // public shows all
+        // All other chats (not marked private)
+        return !(chat.user_marked_private ?? false);
     });
 
     const renderStoryItem = (item: { id: string; username: string; avatar: string; hasStory?: boolean; isYourStory?: boolean }) => (

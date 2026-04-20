@@ -47,7 +47,6 @@ export default function HomeScreen() {
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [storiesData, setStoriesData] = useState<UserWithStories[]>([]);
     const [createGroupVisible, setCreateGroupVisible] = useState(false);
-    const [privateChatIds, setPrivateChatIds] = useState<number[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
 
     // Refresh data when screen is focused
@@ -57,13 +56,7 @@ export default function HomeScreen() {
             loadChats();
             fetchStories();
             fetchNotifications();
-            AsyncStorage.getItem('@private_chat_ids').then(val => {
-                if (val) {
-                    try {
-                        setPrivateChatIds(JSON.parse(val));
-                    } catch (e) { }
-                }
-            });
+            // Preferences now loaded from backend with chats
         }, [])
     );
 
@@ -189,16 +182,35 @@ export default function HomeScreen() {
         try {
             const response = await api.getNotifications();
             if (response.success && response.data) {
-                const val = await AsyncStorage.getItem('@notifications_last_viewed_server');
-                const viewedTime = val ? Number(val) : 0;
+                let viewedTime = await AsyncStorage.getItem('@notifications_last_viewed_server');
+                let numericViewedTime = viewedTime ? Number(viewedTime) : 0;
 
-                const updated = response.data.map((n: Notification) => {
-                    const notifyTime = new Date(n.created_at).getTime();
-                    return {
-                        ...n,
-                        is_read: n.is_read || (!isNaN(notifyTime) && notifyTime <= viewedTime)
-                    };
-                });
+                // If this is the first time fetching notifications (viewedTime not set),
+                // mark all existing notifications as "read" for badge purposes
+                // Only NEW notifications arriving after this point will show in badge
+                if (!viewedTime) {
+                    const now = Date.now();
+                    await AsyncStorage.setItem('@notifications_last_viewed_server', String(now));
+                    numericViewedTime = now;
+                    console.log('🔔 First notification fetch - all existing marked as read for badge');
+                }
+
+                // Show notifications from the last 30 days
+                const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+
+                const updated = response.data
+                    // Keep notifications from last 30 days
+                    .filter((n: Notification) => {
+                        const notifyTime = new Date(n.created_at).getTime();
+                        return notifyTime > thirtyDaysAgo;
+                    })
+                    .map((n: Notification) => {
+                        const notifyTime = new Date(n.created_at).getTime();
+                        return {
+                            ...n,
+                            is_read: n.is_read || (!isNaN(notifyTime) && notifyTime <= numericViewedTime)
+                        };
+                    });
                 setNotifications(updated);
             }
         } catch (error) {
@@ -220,14 +232,33 @@ export default function HomeScreen() {
 
     const handleMarkAllRead = async () => {
         try {
-            // In a real app, you'd call an API here
-            // For now, update local state
+            // Save the current timestamp for reference
+            const currentTime = Date.now();
+            await AsyncStorage.setItem('@mark_all_notifications_read_time', String(currentTime));
+
+            // Mark all notifications as read (keep them in the list for record)
             const updated = notifications.map(n => ({ ...n, is_read: true }));
             setNotifications(updated);
-            // Optional: call api.markAllNotificationsRead() if it exists
+            setShowNotifications(false);
+
+            console.log('✅ All notifications marked as read. Badge count: 0');
         } catch (error) {
             console.error('Error marking all read:', error);
         }
+    };
+
+    const handleToggleNotifications = async () => {
+        const newState = !showNotifications;
+
+        // When opening the notification dropdown, update the "last viewed" time
+        // so these notifications don't count as "new" on next app refresh
+        if (newState) {
+            const now = Date.now();
+            await AsyncStorage.setItem('@notifications_last_viewed_server', String(now));
+            console.log('🔔 Notification dropdown opened - viewed time updated');
+        }
+
+        setShowNotifications(newState);
     };
 
     const handleManageRequest = async (username: string, action: 'accept' | 'decline', notificationId: number) => {
@@ -242,7 +273,7 @@ export default function HomeScreen() {
         }
     };
 
-    const handleNotificationPress = (notification: Notification) => {
+    const handleNotificationPress = async (notification: Notification) => {
         // Mark as read
         const updated = notifications.map(n =>
             n.id === notification.id ? { ...n, is_read: true } : n
@@ -250,8 +281,104 @@ export default function HomeScreen() {
         setNotifications(updated);
         api.markNotificationRead(notification.id);
 
-        // Navigate or handle action based on type
+        // Close dropdown
         setShowNotifications(false);
+
+        // Navigate or handle action based on type
+        console.log('📢 Notification pressed:', notification.notification_type, notification);
+
+        if (notification.notification_type === 'comment' || notification.notification_type === 'reply') {
+            // Navigate to Profile of the scribe author with comment params
+            console.log('💬 Navigating to Profile for scribe comment');
+            const scribeId = (notification as any).data?.scribe_id || (notification as any).scribe_id;
+            try {
+                console.log('⬇️ Fetching scribe with ID:', scribeId);
+                const response = await api.getScribeDetail(scribeId);
+                console.log('📦 Scribe API response:', JSON.stringify(response, null, 2));
+                if (response.success && response.data) {
+                    console.log('✅ Fetched scribe, navigating to author profile');
+                    (navigation as any).navigate('Profile', {
+                        username: response.data.user?.username,
+                        scribeId: scribeId,
+                        openComments: true,
+                    });
+                } else {
+                    console.warn('⚠️ Failed to fetch scribe - response:', response);
+                }
+            } catch (error) {
+                console.error('❌ Error fetching scribe:', error instanceof Error ? error.message : error);
+            }
+        } else if (notification.notification_type === 'omzo_comment') {
+            // Navigate to OmzoViewer with comment params
+            console.log('🎥 Navigating to OmzoViewer for video comment');
+            try {
+                const omzoId = (notification as any).data?.omzo_id || (notification as any).omzo_id;
+                console.log('⬇️ Fetching omzo with ID:', omzoId);
+                const response = await api.getOmzoDetail(omzoId);
+                console.log('📦 Omzo API response:', JSON.stringify(response, null, 2));
+                if (response.success && response.data) {
+                    console.log('✅ Fetched omzo, navigating to viewer');
+                    (navigation as any).navigate('OmzoViewer', {
+                        omzo: response.data,
+                        openComments: true,
+                        commentId: (notification as any).data?.comment_id || (notification as any).comment_id,
+                    });
+                } else {
+                    console.warn('⚠️ Failed to fetch omzo - response:', response);
+                }
+            } catch (error) {
+                console.error('❌ Error fetching omzo:', error instanceof Error ? error.message : error);
+            }
+        } else if (notification.notification_type === 'like') {
+            // Navigate to Profile of the scribe author for like
+            console.log('❤️ Navigating to Profile for like');
+            const scribeId = (notification as any).data?.scribe_id || (notification as any).scribe_id;
+            try {
+                console.log('⬇️ Fetching scribe with ID:', scribeId);
+                const response = await api.getScribeDetail(scribeId);
+                if (response.success && response.data) {
+                    console.log('✅ Fetched scribe, navigating to author profile');
+                    (navigation as any).navigate('Profile', {
+                        username: response.data.user?.username,
+                        scribeId: scribeId,
+                        openComments: false,
+                    });
+                }
+            } catch (error) {
+                console.error('❌ Error fetching scribe:', error instanceof Error ? error.message : error);
+            }
+        } else if (notification.notification_type === 'omzo_like') {
+            // Navigate to OmzoViewer to show the liked video
+            console.log('❤️ Navigating to OmzoViewer for video like');
+            try {
+                const omzoId = (notification as any).data?.omzo_id || (notification as any).omzo_id;
+                console.log('⬇️ Fetching omzo with ID:', omzoId);
+                const response = await api.getOmzoDetail(omzoId);
+                console.log('📦 Omzo API response:', JSON.stringify(response, null, 2));
+                if (response.success && response.data) {
+                    console.log('✅ Fetched omzo, navigating to viewer');
+                    (navigation as any).navigate('OmzoViewer', {
+                        omzo: response.data,
+                    });
+                } else {
+                    console.warn('⚠️ Failed to fetch omzo - response:', response);
+                }
+            } catch (error) {
+                console.error('❌ Error fetching omzo:', error instanceof Error ? error.message : error);
+            }
+        } else if (notification.notification_type === 'follow') {
+            // Navigate to Profile
+            console.log('👤 Navigating to Profile');
+            (navigation as any).navigate('Profile', {
+                userId: (notification as any).sender_id || (notification as any).sender?.id,
+            });
+        } else if (notification.notification_type === 'message') {
+            // Navigate to Chat
+            console.log('💌 Navigating to Chat');
+            (navigation as any).navigate('Chat', {
+                chatId: (notification as any).chat_id,
+            });
+        }
     };
 
     const unreadNotificationsCount = notifications.filter(n => !n.is_read).length;
@@ -285,7 +412,8 @@ export default function HomeScreen() {
 
     const filteredChats = chats.filter(chat => {
         let isTabMatch = false;
-        const isPrivateList = privateChatIds.includes(chat.id);
+        // Use backend preference from user profile
+        const isPrivateList = chat.user_marked_private ?? false;
 
         if (activeTab === 'private') {
             isTabMatch = isPrivateList;
@@ -308,7 +436,7 @@ export default function HomeScreen() {
     });
 
     const handleLongPressChat = (chat: Chat) => {
-        const isCurrentlyPrivate = privateChatIds.includes(chat.id);
+        const isCurrentlyPrivate = chat.user_marked_private ?? false;
         const title = isCurrentlyPrivate ? "Move to Public" : "Move to Private";
         const message = isCurrentlyPrivate
             ? "Do you want to move this chat to the Public tab?"
@@ -319,14 +447,31 @@ export default function HomeScreen() {
             {
                 text: "Move",
                 onPress: async () => {
-                    let updated: number[];
-                    if (isCurrentlyPrivate) {
-                        updated = privateChatIds.filter(id => id !== chat.id);
-                    } else {
-                        updated = [...privateChatIds, chat.id];
+                    try {
+                        // Call backend API to update preference
+                        const response = await api.updateChatPreference(
+                            chat.id,
+                            !isCurrentlyPrivate // Toggle the value
+                        );
+
+                        if (response.success) {
+                            // Update local chat object with new preference
+                            const updatedChats = chats.map(c =>
+                                c.id === chat.id
+                                    ? { ...c, user_marked_private: !isCurrentlyPrivate }
+                                    : c
+                            );
+                            useChatStore.setState({ chats: updatedChats });
+
+                            // Show success message
+                            Alert.alert("Success", response.message || "Chat preference updated");
+                        } else {
+                            Alert.alert("Error", response.error || "Failed to update chat preference");
+                        }
+                    } catch (error) {
+                        console.error('Error toggling chat preference:', error);
+                        Alert.alert("Error", "Failed to update chat preference. Please try again.");
                     }
-                    setPrivateChatIds(updated);
-                    await AsyncStorage.setItem('@private_chat_ids', JSON.stringify(updated));
                 }
             }
         ]);
@@ -532,7 +677,7 @@ export default function HomeScreen() {
                 <View style={styles.headerIcons}>
                     <TouchableOpacity
                         style={styles.bellButton}
-                        onPress={() => setShowNotifications(prev => !prev)}
+                        onPress={handleToggleNotifications}
                     >
                         <Icon name="notifications" size={26} color={colors.textSecondary} />
                         {unreadNotificationsCount > 0 && (
@@ -560,7 +705,12 @@ export default function HomeScreen() {
             {showNotifications && (
                 <NotificationDropdown
                     notifications={notifications}
-                    onClose={() => setShowNotifications(false)}
+                    onClose={async () => {
+                        // Update viewed time when closing dropdown
+                        const now = Date.now();
+                        await AsyncStorage.setItem('@notifications_last_viewed_server', String(now));
+                        setShowNotifications(false);
+                    }}
                     onMarkAllRead={handleMarkAllRead}
                     onNotificationPress={handleNotificationPress}
                     onManageRequest={handleManageRequest}

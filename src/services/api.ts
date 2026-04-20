@@ -502,6 +502,18 @@ class ApiService {
         }
     }
 
+    async updateChatPreference(chatId: number, isPrivate: boolean): Promise<ApiResponse> {
+        try {
+            const response = await this.api.post('/api/update-chat-preference/', {
+                chat_id: chatId,
+                is_private: isPrivate
+            });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
     async getBlockedUsers(): Promise<ApiResponse<User[]>> {
         try {
             const response = await this.api.get('/api/blocked-users/');
@@ -519,6 +531,47 @@ class ApiService {
     async getScribeDetail(scribeId: number): Promise<ApiResponse<Scribe>> {
         try {
             const response = await this.api.get(`/api/scribe/${scribeId}/`);
+            // Backend returns { success, scribe } - we need to convert to { success, data }
+            if (response.data?.scribe) {
+                const scribeData = response.data.scribe;
+
+                // Transform flat structure to nested User structure
+                const transformedScribe: Scribe = {
+                    id: scribeData.id,
+                    user: {
+                        id: 0, // Backend doesn't return user ID, will be populated from profile
+                        username: scribeData.username,
+                        full_name: scribeData.full_name,
+                        profile_picture_url: scribeData.avatar,
+                        bio: '',
+                        email: '',
+                        followers_count: 0,
+                        following_count: 0,
+                        is_private: false,
+                        created_at: new Date().toISOString(),
+                        // Add extra fields that components expect
+                        displayName: scribeData.full_name || scribeData.username,
+                        avatar: scribeData.avatar,
+                    } as any,
+                    content: scribeData.content,
+                    image_url: scribeData.image_url,
+                    mediaUrl: scribeData.image_url,  // Add both for compatibility
+                    content_type: 'text',
+                    like_count: scribeData.like_count || 0,
+                    comment_count: scribeData.comment_count || 0,
+                    is_liked: scribeData.is_liked || false,
+                    is_saved: scribeData.is_saved || false,
+                    timestamp: scribeData.timestamp,
+                    code_html: scribeData.code_html,
+                    code_css: scribeData.code_css,
+                    code_js: scribeData.code_js,
+                };
+
+                return {
+                    success: response.data.success,
+                    data: transformedScribe
+                };
+            }
             return response.data;
         } catch (error) {
             return this.handleError(error);
@@ -654,6 +707,48 @@ class ApiService {
             if (typeof response.data === 'string') {
                 return { success: false, error: 'Endpoint returned non-JSON response' };
             }
+            // Backend returns { success, omzo } - we need to convert to { success, data }
+            if (response.data?.omzo) {
+                const omzoData = response.data.omzo;
+
+                // Transform response to expected format
+                const transformedOmzo: Omzo = {
+                    id: omzoData.id,
+                    user: omzoData.user ? {
+                        id: omzoData.user.id,
+                        username: omzoData.user.username,
+                        full_name: omzoData.user.displayName || omzoData.user.username,
+                        profile_picture_url: omzoData.user.avatar || '',
+                        bio: '',
+                        email: '',
+                        followers_count: 0,
+                        following_count: 0,
+                        is_private: false,
+                        created_at: new Date().toISOString(),
+                    } : undefined,
+                    video_file: omzoData.videoUrl,
+                    video_url: omzoData.videoUrl,
+                    caption: omzoData.caption,
+                    created_at: omzoData.createdAt,
+                    createdAt: omzoData.createdAt,
+                    views_count: omzoData.views || 0,
+                    views: omzoData.views || 0,
+                    like_count: omzoData.likes || 0,
+                    likes: omzoData.likes || 0,
+                    dislike_count: omzoData.dislikes || 0,
+                    dislikes: omzoData.dislikes || 0,
+                    comment_count: omzoData.comments || 0,
+                    comments: omzoData.comments || 0,
+                    is_liked: omzoData.isLiked || false,
+                    is_disliked: omzoData.isDisliked || false,
+                    is_saved: omzoData.isSaved || false,
+                };
+
+                return {
+                    success: response.data.success,
+                    data: transformedOmzo
+                };
+            }
             return response.data;
         } catch (error) {
             return this.handleError(error);
@@ -726,6 +821,28 @@ class ApiService {
                 omzo_id: omzoId,
                 content,
                 parent_id: parentId,
+            });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async toggleScribeCommentLike(commentId: number): Promise<ApiResponse> {
+        try {
+            const response = await this.api.post('/api/toggle-comment-like/', {
+                comment_id: commentId,
+            });
+            return response.data;
+        } catch (error) {
+            return this.handleError(error);
+        }
+    }
+
+    async toggleOmzoCommentLike(commentId: number): Promise<ApiResponse> {
+        try {
+            const response = await this.api.post('/api/omzo/comment/like/', {
+                comment_id: commentId,
             });
             return response.data;
         } catch (error) {
@@ -923,6 +1040,14 @@ class ApiService {
                         notificationType = 'comment';
                         message = `commented: "${item.comment_content || ''}"`;
                         break;
+                    case 'omzo_comment':
+                        notificationType = 'omzo_comment';
+                        message = `commented: "${item.comment_content || ''}"`;
+                        break;
+                    case 'omzo_like':
+                        notificationType = 'like';
+                        message = 'liked your video';
+                        break;
                     case 'follow':
                         notificationType = 'follow';
                         message = 'started following you';
@@ -965,6 +1090,7 @@ class ApiService {
                         scribe_id: item.scribe?.id,
                         story_id: item.story?.id,
                         omzo_id: item.omzo?.id,
+                        comment_id: item.comment_id,
                     },
                     is_read: item.is_read || false,
                     created_at: item.timestamp || new Date().toISOString(),

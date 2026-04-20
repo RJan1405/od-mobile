@@ -10,6 +10,7 @@ import {
     ActivityIndicator,
     Alert,
     SafeAreaView,
+    Image,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuthStore } from '@/stores/authStore';
@@ -140,8 +141,12 @@ export default function OTPScreen() {
                     <Icon name="arrow-back" size={24} color={colors.text} />
                 </TouchableOpacity>
 
-                <View style={[styles.logoContainer, { backgroundColor: colors.primary }]}>
-                    <Icon name="shield-checkmark" size={40} color="#FFFFFF" />
+                <View style={styles.logoContainer}>
+                    <Image 
+                        source={require('@/assets/logo.png')} 
+                        style={styles.logoImage}
+                        resizeMode="contain"
+                    />
                 </View>
 
                 <Text style={[styles.title, { color: colors.text }]}>
@@ -221,13 +226,10 @@ const styles = StyleSheet.create({
         left: 0,
         padding: 8,
     },
-    logoContainer: {
+    logoImage: {
         width: 80,
         height: 80,
-        borderRadius: 24,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 24,
+        borderRadius: 20,
     },
     title: {
         fontSize: 28,

@@ -134,7 +134,7 @@ export default function CreateOmzoScreen() {
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-            <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
+            <StatusBar barStyle={colors.background === '#FFFFFF' ? 'dark-content' : 'light-content'} backgroundColor={colors.background} />
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 16 }}>
                     <Icon name="close" size={24} color={colors.text} />
@@ -146,13 +146,16 @@ export default function CreateOmzoScreen() {
                         disabled={!selectedVideo || isUploading}
                         style={[
                             styles.postButton,
-                            { opacity: selectedVideo && !isUploading ? 1 : 0.5 }
+                            { 
+                                backgroundColor: selectedVideo && !isUploading ? colors.primary : colors.primary + '80',
+                                opacity: 1 // We handle disabled look via backgroundColor
+                            }
                         ]}
                     >
                         {isUploading ? (
-                            <ActivityIndicator size="small" color="#3B82F6" />
+                            <ActivityIndicator size="small" color="#FFFFFF" />
                         ) : (
-                            <Text style={[styles.postButtonText, { color: '#3B82F6' }]}>Post</Text>
+                            <Text style={[styles.postButtonText, { color: '#FFFFFF' }]}>Post</Text>
                         )}
                     </TouchableOpacity>
                 </View>
@@ -198,7 +201,7 @@ export default function CreateOmzoScreen() {
                             />
 
                             {selectedVideo && (
-                                <View style={styles.videoContainer}>
+                                <View style={[styles.videoContainer, { borderColor: colors.border }]}>
                                     <Video
                                         source={{ uri: selectedVideo }}
                                         style={styles.video}
@@ -219,11 +222,11 @@ export default function CreateOmzoScreen() {
                     </ScrollView>
 
                     {/* Action Bar pinned to keyboard */}
-                    <View style={[styles.actionBar, { borderTopColor: colors.border }]}>
-                        <TouchableOpacity style={styles.actionButton} onPress={pickVideo}>
+                    <View style={[styles.actionBar, { borderTopColor: colors.border, backgroundColor: colors.surface }]}>
+                        <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.background }]} onPress={pickVideo}>
                             <Icon name="folder-open-outline" size={24} color={colors.textSecondary} />
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.actionButton} onPress={recordVideo}>
+                        <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.background }]} onPress={recordVideo}>
                             <Icon name="videocam-outline" size={24} color={colors.textSecondary} />
                         </TouchableOpacity>
                         <View style={styles.characterCount}>
@@ -293,7 +296,6 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
         position: 'relative',
         borderWidth: 1,
-        borderColor: '#E2E8F0',
         backgroundColor: '#000',
     },
     video: {
@@ -319,11 +321,9 @@ const styles = StyleSheet.create({
         paddingVertical: 12,
         borderTopWidth: 1,
         gap: 16,
-        backgroundColor: '#FFFFFF',
     },
     actionButton: {
         padding: 8,
-        backgroundColor: '#F1F5F9',
         borderRadius: 20,
     },
     characterCount: {
@@ -334,7 +334,6 @@ const styles = StyleSheet.create({
         fontWeight: '500',
     },
     postButton: {
-        backgroundColor: '#EBF5FF',
         paddingHorizontal: 18,
         paddingVertical: 8,
         borderRadius: 20,

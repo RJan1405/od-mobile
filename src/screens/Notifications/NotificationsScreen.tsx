@@ -8,6 +8,7 @@ import {
     Image,
     RefreshControl,
     ActivityIndicator,
+    DeviceEventEmitter,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
@@ -67,7 +68,7 @@ export default function NotificationsScreen() {
                     };
                 });
                 setNotifications(updated);
-                
+
                 // On initial load or manual refresh, update the high water mark
                 if (isInitialLoad || providedTime !== undefined) {
                     const timestamps = response.data.map((n: Notification) => new Date(n.created_at).getTime()).filter((t: number) => !isNaN(t));
@@ -92,6 +93,8 @@ export default function NotificationsScreen() {
     };
 
     const handleNotificationPress = async (notification: Notification) => {
+        console.log('📢 Notification pressed:', JSON.stringify(notification, null, 2));
+
         // Mark as read
         if (!notification.is_read) {
             await api.markNotificationRead(notification.id);
@@ -100,13 +103,93 @@ export default function NotificationsScreen() {
             );
         }
 
+        console.log('📢 Notification type:', notification.notification_type);
+        console.log('📢 Notification data:', notification.data);
+
         // Navigate based on notification type
         if ((notification.notification_type === 'follow' || notification.notification_type === 'follow_request') && notification.sender) {
+            console.log('👤 Following user:', notification.sender.username);
             (navigation as any).navigate('Profile', { username: notification.sender.username });
-        } else if (notification.data?.scribe_id) {
-            (navigation as any).navigate('PostDetail', { scribeId: notification.data.scribe_id });
-        } else if (notification.data?.story_id) {
+        } else if (notification.notification_type === 'comment' && notification.data?.scribe_id) {
+            // For comment notifications, navigate to the scribe author's profile and show comments
+            console.log('💬 Comment notification - scribeId:', notification.data.scribe_id, 'commentId:', notification.data.comment_id);
+            try {
+                console.log('⬇️ Fetching scribe with ID:', notification.data.scribe_id);
+                const response = await api.getScribeDetail(notification.data.scribe_id);
+                console.log('📦 Scribe API response:', JSON.stringify(response, null, 2));
+                if (response.success && response.data) {
+                    console.log('✅ Fetched scribe, navigating to author profile');
+                    (navigation as any).navigate('Profile', {
+                        username: response.data.user?.username,
+                        scribeId: notification.data.scribe_id,
+                        openComments: true,
+                    });
+                } else {
+                    console.warn('⚠️ Failed to fetch scribe - response:', response);
+                }
+            } catch (error) {
+                console.error('❌ Error fetching scribe:', error instanceof Error ? error.message : error);
+            }
+        } else if (notification.notification_type === 'story_reply' && notification.data?.story_id) {
+            console.log('📖 Story reply - userId:', notification.sender?.id);
             (navigation as any).navigate('StoryView', { userId: notification.sender?.id });
+        } else if ((notification.notification_type === 'like' || notification.notification_type === 'mention') && notification.data?.scribe_id) {
+            // For likes/mentions on scribes, navigate to the scribe author's profile
+            console.log('❤️ Like/mention notification - scribeId:', notification.data.scribe_id);
+            try {
+                console.log('⬇️ Fetching scribe with ID:', notification.data.scribe_id);
+                const response = await api.getScribeDetail(notification.data.scribe_id);
+                if (response.success && response.data) {
+                    console.log('✅ Fetched scribe, navigating to author profile');
+                    (navigation as any).navigate('Profile', {
+                        username: response.data.user?.username,
+                        scribeId: notification.data.scribe_id,
+                        openComments: false,
+                    });
+                }
+            } catch (error) {
+                console.error('❌ Error fetching scribe:', error instanceof Error ? error.message : error);
+            }
+        } else if (notification.notification_type === 'omzo_comment' && notification.data?.omzo_id) {
+            // For omzo comments, fetch the omzo and navigate to OmzoViewer
+            console.log('🎥 Omzo comment notification - omzoId:', notification.data.omzo_id, 'commentId:', notification.data.comment_id);
+            try {
+                console.log('⬇️ Fetching omzo with ID:', notification.data.omzo_id);
+                const response = await api.getOmzoDetail(notification.data.omzo_id);
+                console.log('📦 Omzo API response:', JSON.stringify(response, null, 2));
+                if (response.success && response.data) {
+                    console.log('✅ Fetched omzo, navigating to viewer');
+                    (navigation as any).navigate('OmzoViewer', {
+                        omzo: response.data,
+                        openComments: true,
+                        commentId: notification.data.comment_id,
+                    });
+                } else {
+                    console.warn('⚠️ Failed to fetch omzo - response:', response);
+                }
+            } catch (error) {
+                console.error('❌ Error fetching omzo:', error instanceof Error ? error.message : error);
+            }
+        } else if (notification.notification_type === 'omzo_like' && notification.data?.omzo_id) {
+            // For omzo likes, fetch the omzo and navigate to OmzoViewer
+            console.log('❤️ Omzo like notification - omzoId:', notification.data.omzo_id);
+            try {
+                console.log('⬇️ Fetching omzo with ID:', notification.data.omzo_id);
+                const response = await api.getOmzoDetail(notification.data.omzo_id);
+                console.log('📦 Omzo API response:', JSON.stringify(response, null, 2));
+                if (response.success && response.data) {
+                    console.log('✅ Fetched omzo, navigating to viewer');
+                    (navigation as any).navigate('OmzoViewer', {
+                        omzo: response.data,
+                    });
+                } else {
+                    console.warn('⚠️ Failed to fetch omzo - response:', response);
+                }
+            } catch (error) {
+                console.error('❌ Error fetching omzo:', error instanceof Error ? error.message : error);
+            }
+        } else {
+            console.warn('⚠️ No handler for notification type:', notification.notification_type, 'data:', notification.data);
         }
     };
 
@@ -131,6 +214,8 @@ export default function NotificationsScreen() {
             case 'follow_request':
                 return { name: 'person-add-outline', color: '#F59E0B' };
             case 'comment':
+                return { name: 'chatbox-ellipses', color: '#8B5CF6' };
+            case 'omzo_comment':
                 return { name: 'chatbox-ellipses', color: '#8B5CF6' };
             case 'story_reply':
                 return { name: 'chatbubble', color: '#10B981' };

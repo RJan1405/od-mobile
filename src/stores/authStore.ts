@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/config';
 import api from '@/services/api';
+import { StorageCleanup } from '@/services/mmkvStorage';
 import type { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import type { User } from '@/types';
 
@@ -202,6 +203,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         } catch (error) {
             console.error('Logout error:', error);
         } finally {
+            // Clear MMKV cache on logout (security)
+            try {
+                StorageCleanup.clearAllData();
+            } catch (error) {
+                console.error('Failed to clear MMKV cache on logout:', error);
+            }
+
             set({
                 user: null,
                 isAuthenticated: false,

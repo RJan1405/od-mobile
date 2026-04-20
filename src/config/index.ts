@@ -8,7 +8,7 @@ export const API_CONFIG = {
    // BASE_URL: API_BASE_URL || 'http://localhost:8000',
    // WS_URL: WS_BASE_URL || 'ws://localhost:8000',
         BASE_URL:'http://10.229.112.51:8000',
-        WS_URL: 'ws://10.229.112.51:8000',
+        WS_URL:'ws://10.229.112.51:8000',
     TIMEOUT: 30000,
 };
 

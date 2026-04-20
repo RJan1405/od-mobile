@@ -9,11 +9,11 @@ import {
     KeyboardAvoidingView,
     Platform,
     ActivityIndicator,
-    Image,
     ScrollView,
     Keyboard,
 } from 'react-native';
 import Modal from 'react-native-modal';
+import FastImage from 'react-native-fast-image';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -211,6 +211,43 @@ export default function OmzoCommentsSheet({
         setCommentText('');
     };
 
+    const handleLikeComment = async (comment: OmzoComment) => {
+        try {
+            const response = await api.toggleOmzoCommentLike(comment.id);
+            if (response.success) {
+                // Update the comment locally
+                setComments(prev => prev.map(c => {
+                    if (c.id === comment.id) {
+                        return {
+                            ...c,
+                            is_liked: response.is_liked,
+                            like_count: response.like_count,
+                        };
+                    }
+                    // Also update replies
+                    if ((c as any).replies?.length > 0) {
+                        return {
+                            ...c,
+                            replies: (c as any).replies.map((r: any) => {
+                                if (r.id === comment.id) {
+                                    return {
+                                        ...r,
+                                        is_liked: response.is_liked,
+                                        like_count: response.like_count,
+                                    };
+                                }
+                                return r;
+                            })
+                        };
+                    }
+                    return c;
+                }));
+            }
+        } catch (error) {
+            console.error('Error liking comment:', error);
+        }
+    };
+
     const formatTime = (timestamp: string) => {
         if (!timestamp) return '';
         const date = new Date(timestamp);
@@ -232,7 +269,7 @@ export default function OmzoCommentsSheet({
         return (
             <View key={`comment-${item.id}`} style={[styles.commentItem, isReply && styles.replyItem]}>
                 {hasValidAvatar ? (
-                    <Image source={{ uri: avatarUri }} style={isReply ? styles.replyAvatar : styles.commentAvatar} />
+                    <FastImage source={{ uri: avatarUri }} style={isReply ? styles.replyAvatar : styles.commentAvatar} />
                 ) : (
                     <View style={[isReply ? styles.replyAvatar : styles.commentAvatar, { backgroundColor: colors.primary }]}>
                         <Text style={isReply ? styles.replyAvatarText : styles.avatarText}>
@@ -253,7 +290,11 @@ export default function OmzoCommentsSheet({
                         {item.content}
                     </Text>
                     <View style={styles.commentActions}>
-                        <TouchableOpacity style={styles.actionButton} activeOpacity={0.7}>
+                        <TouchableOpacity
+                            style={styles.actionButton}
+                            activeOpacity={0.7}
+                            onPress={() => handleLikeComment(item)}
+                        >
                             <Icon name={item.is_liked ? "heart" : "heart-outline"} size={16} color={item.is_liked ? "#EF4444" : colors.textSecondary} />
                             <Text style={[styles.actionText, { color: colors.textSecondary }]}>
                                 {item.like_count || 0}
@@ -377,7 +418,7 @@ export default function OmzoCommentsSheet({
                     >
                         <View style={[styles.inputContainer, { borderTopColor: colors.border }]}>
                             {user?.profile_picture_url ? (
-                                <Image
+                                <FastImage
                                     source={{ uri: user.profile_picture_url }}
                                     style={styles.userAvatar}
                                 />
@@ -497,7 +538,7 @@ const styles = StyleSheet.create({
     commentAvatar: {
         width: 40,
         height: 40,
-        borderRadius: 20,
+        borderRadius: 10,
         marginRight: 12,
         justifyContent: 'center',
         alignItems: 'center',
@@ -563,7 +604,7 @@ const styles = StyleSheet.create({
     userAvatar: {
         width: 36,
         height: 36,
-        borderRadius: 18,
+        borderRadius: 10,
         marginRight: 12,
         justifyContent: 'center',
         alignItems: 'center',
@@ -588,7 +629,7 @@ const styles = StyleSheet.create({
     replyAvatar: {
         width: 32,
         height: 32,
-        borderRadius: 16,
+        borderRadius: 10,
         marginRight: 10,
         justifyContent: 'center',
         alignItems: 'center',

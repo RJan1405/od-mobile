@@ -10,6 +10,7 @@ import {
     ActivityIndicator,
     Alert,
     ScrollView,
+    Image,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAuthStore } from '@/stores/authStore';
@@ -105,10 +106,12 @@ export default function SignupScreen() {
                         <Icon name="arrow-back" size={24} color={colors.text} />
                     </TouchableOpacity>
 
-                    <View
-                        style={[styles.logoContainer, { backgroundColor: colors.primary }]}
-                    >
-                        <Text style={styles.logo}>Odnix</Text>
+                    <View style={styles.logoContainer}>
+                        <Image 
+                            source={require('@/assets/logo.png')} 
+                            style={styles.logoImage}
+                            resizeMode="contain"
+                        />
                     </View>
 
                     <Text style={[styles.title, { color: colors.text }]}>
@@ -339,10 +342,10 @@ const styles = StyleSheet.create({
             },
         }),
     },
-    logo: {
-        fontSize: 36,
-        fontWeight: 'bold',
-        color: '#FFFFFF',
+    logoImage: {
+        width: 120,
+        height: 120,
+        borderRadius: 30,
     },
     title: {
         fontSize: 28,

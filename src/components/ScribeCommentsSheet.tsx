@@ -9,11 +9,11 @@ import {
     KeyboardAvoidingView,
     Platform,
     ActivityIndicator,
-    Image,
     ScrollView,
     Keyboard,
 } from 'react-native';
 import Modal from 'react-native-modal';
+import FastImage from 'react-native-fast-image';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -102,7 +102,7 @@ export default function ScribeCommentsSheet({
         if (!text || isSubmitting) return;
 
         const currentReplyingTo = replyingTo;
-        
+
         setIsSubmitting(true);
         setCommentText('');
         setReplyingTo(null);
@@ -144,7 +144,7 @@ export default function ScribeCommentsSheet({
         try {
             const response = await api.addComment(scribeId, text, currentReplyingTo?.id);
             if (response.success && (response as any).comment) {
-                const newComment = (response as any).comment;   
+                const newComment = (response as any).comment;
                 setComments(prev => prev.map(c => {
                     if (c.id === optimisticId) return newComment;
                     if ((c as any).replies?.length > 0) {
@@ -174,6 +174,43 @@ export default function ScribeCommentsSheet({
         setCommentText('');
     };
 
+    const handleLikeComment = async (comment: Comment) => {
+        try {
+            const response = await api.toggleScribeCommentLike(comment.id);
+            if (response.success) {
+                // Update the comment locally
+                setComments(prev => prev.map(c => {
+                    if (c.id === comment.id) {
+                        return {
+                            ...c,
+                            is_liked: response.is_liked,
+                            like_count: response.like_count,
+                        };
+                    }
+                    // Also update replies
+                    if ((c as any).replies?.length > 0) {
+                        return {
+                            ...c,
+                            replies: (c as any).replies.map((r: any) => {
+                                if (r.id === comment.id) {
+                                    return {
+                                        ...r,
+                                        is_liked: response.is_liked,
+                                        like_count: response.like_count,
+                                    };
+                                }
+                                return r;
+                            })
+                        };
+                    }
+                    return c;
+                }));
+            }
+        } catch (error) {
+            console.error('Error liking comment:', error);
+        }
+    };
+
     const formatTime = (timestamp: string) => {
         if (!timestamp) return '';
         const date = new Date(timestamp);
@@ -195,7 +232,7 @@ export default function ScribeCommentsSheet({
         return (
             <View key={`comment-${item.id}`} style={[styles.commentItem, isReply && styles.replyItem]}>
                 {hasValidAvatar ? (
-                    <Image source={{ uri: avatarUri }} style={isReply ? styles.replyAvatar : styles.commentAvatar} />
+                    <FastImage source={{ uri: avatarUri }} style={isReply ? styles.replyAvatar : styles.commentAvatar} />
                 ) : (
                     <View style={[isReply ? styles.replyAvatar : styles.commentAvatar, { backgroundColor: colors.primary }]}>
                         <Text style={styles.avatarText}>
@@ -216,7 +253,11 @@ export default function ScribeCommentsSheet({
                         {item.content}
                     </Text>
                     <View style={styles.commentActions}>
-                        <TouchableOpacity style={styles.actionButton} activeOpacity={0.7}>
+                        <TouchableOpacity
+                            style={styles.actionButton}
+                            activeOpacity={0.7}
+                            onPress={() => handleLikeComment(item)}
+                        >
                             <Icon name={(item as any).is_liked ? "heart" : "heart-outline"} size={16} color={(item as any).is_liked ? "#EF4444" : colors.textSecondary} />
                             <Text style={[styles.actionText, { color: colors.textSecondary }]}>
                                 {item.like_count || 0}
@@ -339,45 +380,45 @@ export default function ScribeCommentsSheet({
                         keyboardShouldPersistTaps="always"
                         nestedScrollEnabled={false}
                     >
-                    <View style={[styles.inputContainer, { borderTopColor: colors.border }]}>
-                        {user?.profile_picture_url ? (
-                            <Image
-                                source={{ uri: user.profile_picture_url }}
-                                style={styles.userAvatar}
-                            />
-                        ) : (
-                            <View style={[styles.userAvatar, { backgroundColor: colors.primary }]}>
-                                <Text style={styles.avatarText}>
-                                    {user?.username?.[0]?.toUpperCase() || '?'}
-                                </Text>
-                            </View>
-                        )}
-                        <TextInput
-                            ref={inputRef}
-                            style={[styles.input, { color: colors.text, backgroundColor: colors.background }]}
-                            placeholder={replyingTo ? "Add a reply..." : "Add a comment..."}
-                            placeholderTextColor={colors.textSecondary}
-                            value={commentText}
-                            onChangeText={setCommentText}
-                            multiline
-                            maxLength={500}
-                        />
-                        <TouchableOpacity
-                            onPress={handleAddComment}
-                            disabled={!commentText.trim() || isSubmitting}
-                            style={styles.sendButton}
-                        >
-                            {isSubmitting ? (
-                                <ActivityIndicator size="small" color={colors.primary} />
-                            ) : (
-                                <Icon
-                                    name="send"
-                                    size={24}
-                                    color={commentText.trim() ? colors.primary : colors.textSecondary}
+                        <View style={[styles.inputContainer, { borderTopColor: colors.border }]}>
+                            {user?.profile_picture_url ? (
+                                <FastImage
+                                    source={{ uri: user.profile_picture_url }}
+                                    style={styles.userAvatar}
                                 />
+                            ) : (
+                                <View style={[styles.userAvatar, { backgroundColor: colors.primary }]}>
+                                    <Text style={styles.avatarText}>
+                                        {user?.username?.[0]?.toUpperCase() || '?'}
+                                    </Text>
+                                </View>
                             )}
-                        </TouchableOpacity>
-                    </View>
+                            <TextInput
+                                ref={inputRef}
+                                style={[styles.input, { color: colors.text, backgroundColor: colors.background }]}
+                                placeholder={replyingTo ? "Add a reply..." : "Add a comment..."}
+                                placeholderTextColor={colors.textSecondary}
+                                value={commentText}
+                                onChangeText={setCommentText}
+                                multiline
+                                maxLength={500}
+                            />
+                            <TouchableOpacity
+                                onPress={handleAddComment}
+                                disabled={!commentText.trim() || isSubmitting}
+                                style={styles.sendButton}
+                            >
+                                {isSubmitting ? (
+                                    <ActivityIndicator size="small" color={colors.primary} />
+                                ) : (
+                                    <Icon
+                                        name="send"
+                                        size={24}
+                                        color={commentText.trim() ? colors.primary : colors.textSecondary}
+                                    />
+                                )}
+                            </TouchableOpacity>
+                        </View>
                     </ScrollView>
                 </KeyboardAvoidingView>
             </View>
@@ -461,7 +502,7 @@ const styles = StyleSheet.create({
     commentAvatar: {
         width: 40,
         height: 40,
-        borderRadius: 20,
+        borderRadius: 10,
         marginRight: 12,
         justifyContent: 'center',
         alignItems: 'center',
@@ -515,7 +556,7 @@ const styles = StyleSheet.create({
     userAvatar: {
         width: 36,
         height: 36,
-        borderRadius: 18,
+        borderRadius: 10,
         marginRight: 12,
         justifyContent: 'center',
         alignItems: 'center',
@@ -540,7 +581,7 @@ const styles = StyleSheet.create({
     replyAvatar: {
         width: 24,
         height: 24,
-        borderRadius: 12,
+        borderRadius: 10,
         marginRight: 10,
         justifyContent: 'center',
         alignItems: 'center',

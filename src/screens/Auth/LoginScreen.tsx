@@ -9,6 +9,7 @@ import {
     Platform,
     ActivityIndicator,
     Alert,
+    Image,
 } from 'react-native';
 import { useAuthStore } from '@/stores/authStore';
 import { useThemeStore } from '@/stores/themeStore';
@@ -40,10 +41,12 @@ export default function LoginScreen() {
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
             <View style={styles.content}>
-                <View
-                    style={[styles.logoContainer, { backgroundColor: colors.primary }]}
-                >
-                    <Text style={styles.logo}>Odnix</Text>
+                <View style={styles.logoContainer}>
+                    <Image 
+                        source={require('@/assets/logo.png')} 
+                        style={styles.logoImage}
+                        resizeMode="contain"
+                    />
                 </View>
 
                 <Text style={[styles.title, { color: colors.text }]}>
@@ -141,10 +144,10 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginBottom: 32,
     },
-    logo: {
-        fontSize: 36,
-        fontWeight: 'bold',
-        color: '#FFFFFF',
+    logoImage: {
+        width: 120,
+        height: 120,
+        borderRadius: 30,
     },
     title: {
         fontSize: 32,

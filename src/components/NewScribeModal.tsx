@@ -44,10 +44,10 @@ export default function NewScribeModal({ visible, onClose, onSuccess }: NewScrib
     const textInputRef = useRef<TextInput>(null);
 
     const handlePost = async () => {
-        const canPost = activeTab === 'code' 
+        const canPost = activeTab === 'code'
             ? (codeContent.html.trim() || codeContent.css.trim() || codeContent.js.trim())
-            : activeTab === 'image' 
-                ? !!selectedImage 
+            : activeTab === 'image'
+                ? !!selectedImage
                 : content.trim();
 
         if (!canPost) {
@@ -107,7 +107,7 @@ export default function NewScribeModal({ visible, onClose, onSuccess }: NewScrib
         setSelectedImage(null);
         setCodeContent({ html: '', css: '', js: '' });
         setActiveTab('text');
-        
+
         if (success && onSuccess) {
             onSuccess();
         } else {
@@ -144,10 +144,46 @@ export default function NewScribeModal({ visible, onClose, onSuccess }: NewScrib
         );
     };
 
-    const canPost = activeTab === 'code' 
+    const pickGif = async () => {
+        if (Platform.OS === 'ios') {
+            const permission = PERMISSIONS.IOS.PHOTO_LIBRARY;
+            const result = await request(permission);
+            if (result !== RESULTS.GRANTED && result !== RESULTS.LIMITED) {
+                Alert.alert('Permission needed', 'Please grant photo library permissions first.');
+                return;
+            }
+        }
+
+        // Don't constrain mediaType to allow true GIF selection
+        // Use mixed type to allow all image formats including animated GIFs
+        launchImageLibrary(
+            {
+                mediaType: 'mixed',  // Changed from 'photo' to allow all image types including GIFs
+                includeBase64: false,
+                maxHeight: 1200,
+                maxWidth: 1200,
+                quality: 1,  // Full quality to preserve GIF animation
+            },
+            (response) => {
+                if (!response.didCancel && !response.errorMessage && response.assets && response.assets.length > 0) {
+                    const asset = response.assets[0];
+                    if (asset.uri) {
+                        // Check if it's likely a GIF based on filename
+                        const filename = asset.uri.split('/').pop() || '';
+                        if (filename.toLowerCase().endsWith('.gif')) {
+                            console.log('🎬 GIF selected:', filename);
+                        }
+                        setSelectedImage(asset.uri);
+                    }
+                }
+            }
+        );
+    };
+
+    const canPost = activeTab === 'code'
         ? (codeContent.html.trim() || codeContent.css.trim() || codeContent.js.trim())
-        : activeTab === 'image' 
-            ? !!selectedImage 
+        : activeTab === 'image'
+            ? !!selectedImage
             : content.trim();
 
     return (
@@ -175,7 +211,7 @@ export default function NewScribeModal({ visible, onClose, onSuccess }: NewScrib
                                         onPress={handlePost}
                                         disabled={!canPost || isPosting}
                                         style={[
-                                            styles.postButton, 
+                                            styles.postButton,
                                             { backgroundColor: canPost ? colors.primary : '#A1C4FD' }
                                         ]}
                                     >
@@ -244,21 +280,29 @@ export default function NewScribeModal({ visible, onClose, onSuccess }: NewScrib
 
                                     {activeTab === 'image' && (
                                         <View style={styles.imageTabContent}>
-                                            <TouchableOpacity style={styles.imagePickerBox} onPress={pickImage}>
-                                                {selectedImage ? (
-                                                    <View style={styles.selectedImageContainer}>
-                                                        <Image source={{ uri: selectedImage }} style={styles.previewImage} />
-                                                        <TouchableOpacity style={styles.removeImageBtn} onPress={() => setSelectedImage(null)}>
-                                                            <Icon name="close" size={20} color="#FFFFFF" />
-                                                        </TouchableOpacity>
-                                                    </View>
-                                                ) : (
-                                                    <View style={styles.uploadPlaceholder}>
-                                                        <Icon name="image-outline" size={48} color={colors.textSecondary} />
-                                                        <Text style={[styles.uploadText, { color: colors.textSecondary }]}>Tap to add image</Text>
-                                                    </View>
-                                                )}
-                                            </TouchableOpacity>
+                                            {selectedImage ? (
+                                                <View style={styles.selectedImageContainer}>
+                                                    <Image source={{ uri: selectedImage }} style={styles.previewImage} />
+                                                    <TouchableOpacity style={styles.removeImageBtn} onPress={() => setSelectedImage(null)}>
+                                                        <Icon name="close" size={20} color="#FFFFFF" />
+                                                    </TouchableOpacity>
+                                                </View>
+                                            ) : (
+                                                <View style={styles.imagePickerOptions}>
+                                                    <TouchableOpacity style={[styles.imagePickerBox, { flex: 1, marginRight: 8 }]} onPress={pickImage}>
+                                                        <View style={styles.uploadPlaceholder}>
+                                                            <Icon name="image-outline" size={40} color={colors.textSecondary} />
+                                                            <Text style={[styles.uploadText, { color: colors.textSecondary, marginTop: 8 }]}>Photo</Text>
+                                                        </View>
+                                                    </TouchableOpacity>
+                                                    <TouchableOpacity style={[styles.imagePickerBox, { flex: 1, marginLeft: 8 }]} onPress={pickGif}>
+                                                        <View style={styles.uploadPlaceholder}>
+                                                            <Text style={[styles.uploadText, { color: colors.textSecondary, fontSize: 32 }]}>🎬</Text>
+                                                            <Text style={[styles.uploadText, { color: colors.textSecondary, marginTop: 8 }]}>GIF</Text>
+                                                        </View>
+                                                    </TouchableOpacity>
+                                                </View>
+                                            )}
                                         </View>
                                     )}
 
@@ -427,6 +471,11 @@ const styles = StyleSheet.create({
     },
     imageTabContent: {
         padding: 16,
+    },
+    imagePickerOptions: {
+        flexDirection: 'row',
+        gap: 16,
+        width: '100%',
     },
     imagePickerBox: {
         width: '100%',

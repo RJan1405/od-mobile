@@ -21,8 +21,10 @@ import { useAuthStore } from '@/stores/authStore';
 import { useFollowStore } from '@/stores/followStore';
 import { useInteractionStore } from '@/stores/interactionStore';
 import { useRepostStore } from '@/stores/repostStore';
+import { useUploadStore } from '@/stores/uploadStore';
 import { THEME_INFO } from '@/config';
 import api from '@/services/api';
+import { UploadStorage } from '@/services/mmkvStorage';
 import type { User, Scribe, Omzo } from '@/types';
 import ScribeCard from '@/components/ScribeCard';
 import OmzoCard from '@/components/OmzoCard';
@@ -92,11 +94,95 @@ export default function ProfileScreen() {
         };
     }, [username, currentUser]);
 
+    // Load cache instantly when screen is focused (for fast reload on navigation)
+    useFocusEffect(
+        React.useCallback(() => {
+            if (isOwnProfile && currentUser?.username) {
+                // Load from cache instantly - no loading spinner
+                const cachedScribes = UploadStorage.getMyScribes();
+                const cachedOmzos = UploadStorage.getMyOmzos();
+                if (cachedScribes.length > 0 || cachedOmzos.length > 0) {
+                    console.log('⚡ [Focus] Loading own profile from cache instantly:', cachedScribes.length, 'scribes,', cachedOmzos.length, 'omzos');
+                    setScribes(cachedScribes);
+                    setOmzos(cachedOmzos);
+                }
+
+                // Silently refresh from API in background (no loading indicator)
+                console.log('🔄 [Focus] Refreshing profile from API in background...');
+                api.getUserProfile(currentUser.username).then(response => {
+                    if (response.success && (response.data || response.user)) {
+                        console.log('✅ [Focus] Updated profile data from API');
+                        setUser(response.data || response.user);
+                        setScribes(response.scribes || []);
+                        setReposts(response.reposts || []);
+                        setOmzos(response.omzos || []);
+
+                        // Update cache with fresh data
+                        UploadStorage.saveMyScribes(response.scribes || []);
+                        UploadStorage.saveMyOmzos(response.omzos || []);
+                    }
+                }).catch(err => {
+                    console.log('ℹ️ [Focus] Background refresh failed (cache still shown):', err);
+                });
+            }
+        }, [isOwnProfile, currentUser?.username])
+    );
+
+    // Handle notification params - open scribe comments if coming from notification
+    useFocusEffect(
+        React.useCallback(() => {
+            const params = route.params as any;
+            if (params?.scribeId) {
+                const scribeId = params.scribeId;
+                console.log('📍 ProfileScreen received scribeId from notification:', scribeId);
+
+                // Try to find scribe in loaded list first
+                const foundScribe = scribes.find(s => s.id === scribeId);
+                if (foundScribe) {
+                    console.log('✅ Found scribe in profile:', foundScribe.id);
+                    setCommentScribeId(foundScribe.id);
+                    setCommentCountForSheet(foundScribe.comment_count || 0);
+                    setIsScribeCommentsVisible(true);
+                } else {
+                    console.log('🔄 Fetching scribe from API:', scribeId);
+                    // Fetch from API if not in list
+                    api.getScribeDetail(scribeId).then(response => {
+                        if (response.success && response.data) {
+                            console.log('📦 Fetched scribe:', response.data);
+                            setCommentScribeId(response.data.id);
+                            setCommentCountForSheet(response.data.comment_count || 0);
+                            setIsScribeCommentsVisible(true);
+                        } else {
+                            console.error('❌ Failed to fetch scribe');
+                        }
+                    }).catch(error => {
+                        console.error('❌ Error fetching scribe:', error);
+                    });
+                }
+
+                // Clear params after handling
+                setTimeout(() => {
+                    (navigation as any).setParams({ scribeId: undefined });
+                }, 500);
+            }
+        }, [route.params, scribes])
+    );
+
     const loadProfile = async () => {
         if (!user) setIsLoading(true);
         try {
             if (isOwnProfile) {
                 if (currentUser?.username) {
+                    // Load from cache first (instant UI)
+                    const cachedScribes = UploadStorage.getMyScribes();
+                    const cachedOmzos = UploadStorage.getMyOmzos();
+                    if (cachedScribes.length > 0 || cachedOmzos.length > 0) {
+                        console.log('📂 Loading own profile from cache:', cachedScribes.length, 'scribes,', cachedOmzos.length, 'omzos');
+                        setScribes(cachedScribes);
+                        setOmzos(cachedOmzos);
+                    }
+
+                    // Then refresh from API
                     const response = await api.getUserProfile(currentUser.username);
                     if (response.success && (response.data || response.user)) {
                         const profileData = (response.data || response.user) as User;
@@ -106,6 +192,10 @@ export default function ProfileScreen() {
                         setOmzos(response.omzos || []);
                         // Own profile — never following yourself
                         setFollowState(profileUsername, false);
+
+                        // Save to cache
+                        UploadStorage.saveMyScribes(response.scribes || []);
+                        UploadStorage.saveMyOmzos(response.omzos || []);
                     } else {
                         console.error('Response not successful or no data:', response);
                     }
@@ -269,12 +359,43 @@ export default function ProfileScreen() {
         if (!isOwnProfile) return;
         setIsLoadingSaved(true);
         try {
+            // Load from cache first (instant UI)
+            const cachedSavedScribes = UploadStorage.getSavedScribes();
+            const cachedSavedOmzos = UploadStorage.getSavedOmzos();
+
+            if (cachedSavedScribes.length > 0 || cachedSavedOmzos.length > 0) {
+                console.log('📂 Loading saved items from cache:', cachedSavedScribes.length, 'scribes,', cachedSavedOmzos.length, 'omzos');
+                const combinedSaved = [
+                    ...cachedSavedScribes.map(s => ({ ...s, type: 'scribe' })),
+                    ...cachedSavedOmzos.map(o => ({ ...o, type: 'omzo' }))
+                ];
+                setSavedItems(combinedSaved);
+            }
+
+            // Then refresh from API
             const response = await api.getSavedItems();
             if (response.success && (response as any).saved_items) {
-                setSavedItems((response as any).saved_items);
+                const items = (response as any).saved_items;
+                setSavedItems(items);
+
+                // Save to cache
+                const savedScribes = items.filter((item: any) => item.type === 'scribe');
+                const savedOmzos = items.filter((item: any) => item.type === 'omzo');
+                if (savedScribes.length > 0) UploadStorage.saveSavedScribes(savedScribes);
+                if (savedOmzos.length > 0) UploadStorage.saveSavedOmzos(savedOmzos);
             }
         } catch (error) {
             console.error('Error loading saved items:', error);
+            // Try to load from cache on error
+            const cachedScribes = UploadStorage.getSavedScribes();
+            const cachedOmzos = UploadStorage.getSavedOmzos();
+            if (cachedScribes.length > 0 || cachedOmzos.length > 0) {
+                const combined = [
+                    ...cachedScribes.map(s => ({ ...s, type: 'scribe' })),
+                    ...cachedOmzos.map(o => ({ ...o, type: 'omzo' }))
+                ];
+                setSavedItems(combined);
+            }
         } finally {
             setIsLoadingSaved(false);
         }
@@ -334,13 +455,26 @@ export default function ProfileScreen() {
         );
     }
 
-    // Validate profile picture URL
+    // Validate profile picture URL and add cache-buster for GIFs
     const profilePicUri = user.profile_picture_url || user.profile_picture || '';
     const hasValidProfilePic =
         profilePicUri &&
         profilePicUri !== 'null' &&
         profilePicUri.trim().length > 0 &&
         profilePicUri.startsWith('http');
+
+    // Detect if profile pic is GIF and add cache-buster for animation
+    const isProfileGif = profilePicUri.toLowerCase().endsWith('.gif');
+    const profilePicUriWithBuster = isProfileGif && profilePicUri
+        ? `${profilePicUri}${profilePicUri.includes('?') ? '&' : '?'}t=${Date.now()}`
+        : profilePicUri;
+
+    // Detect if cover image is GIF and add cache-buster for animation
+    const coverImageUrl = (user as any).cover_image_url || '';
+    const isCoverGif = coverImageUrl.toLowerCase().endsWith('.gif');
+    const coverImageUrlWithBuster = isCoverGif && coverImageUrl
+        ? `${coverImageUrl}${coverImageUrl.includes('?') ? '&' : '?'}t=${Date.now()}`
+        : coverImageUrl;
 
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -376,14 +510,23 @@ export default function ProfileScreen() {
                 {/* Cover Image Area */}
                 <View style={[styles.coverContainer, { backgroundColor: colors.primary + '20' }]}>
                     {(user as any).cover_image_url ? (
-                        <FastImage
-                            source={{
-                                uri: (user as any).cover_image_url,
-                                priority: FastImage.priority.normal,
-                                cache: FastImage.cacheControl.immutable,
-                            }}
-                            style={styles.coverImage}
-                        />
+                        isCoverGif ? (
+                            // Use Image for GIFs (supports animation)
+                            <Image
+                                source={{ uri: coverImageUrlWithBuster }}
+                                style={styles.coverImage}
+                            />
+                        ) : (
+                            // Use FastImage for regular images (better performance)
+                            <FastImage
+                                source={{
+                                    uri: (user as any).cover_image_url,
+                                    priority: FastImage.priority.normal,
+                                    cache: FastImage.cacheControl.immutable,
+                                }}
+                                style={styles.coverImage}
+                            />
+                        )
                     ) : (
                         <View style={[styles.coverPlaceholder, { backgroundColor: colors.primary + '30' }]} />
                     )}
@@ -393,14 +536,23 @@ export default function ProfileScreen() {
                     {/* Profile Picture (Overlapping) */}
                     <View style={styles.profileImageWrapper}>
                         {hasValidProfilePic ? (
-                            <FastImage
-                                source={{
-                                    uri: profilePicUri,
-                                    priority: FastImage.priority.high,
-                                    cache: FastImage.cacheControl.immutable,
-                                }}
-                                style={[styles.profileImage, { borderColor: colors.background, borderWidth: 4 }]}
-                            />
+                            isProfileGif ? (
+                                // Use Image for GIFs (supports animation)
+                                <Image
+                                    source={{ uri: profilePicUriWithBuster }}
+                                    style={[styles.profileImage, { borderColor: colors.background, borderWidth: 4 }]}
+                                />
+                            ) : (
+                                // Use FastImage for regular images (better performance)
+                                <FastImage
+                                    source={{
+                                        uri: profilePicUri,
+                                        priority: FastImage.priority.high,
+                                        cache: FastImage.cacheControl.immutable,
+                                    }}
+                                    style={[styles.profileImage, { borderColor: colors.background, borderWidth: 4 }]}
+                                />
+                            )
                         ) : (
                             <View
                                 style={[

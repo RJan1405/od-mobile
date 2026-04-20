@@ -4,7 +4,6 @@ import {
     Text,
     StyleSheet,
     TouchableOpacity,
-    Image,
     TextInput,
     ScrollView,
     ActivityIndicator,
@@ -15,6 +14,7 @@ import {
     KeyboardAvoidingView,
 } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import FastImage from 'react-native-fast-image';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -36,23 +36,31 @@ export default function EditProfileScreen() {
 
     const handlePickAvatar = async () => {
         const result = await launchImageLibrary({
-            mediaType: 'photo',
-            quality: 0.8,
+            mediaType: 'mixed',  // Changed from 'photo' to allow all image types including GIFs
+            quality: 1,  // Full quality to preserve GIF animation
         });
 
         if (result.assets && result.assets.length > 0) {
-            setAvatar(result.assets[0]);
+            const asset = result.assets[0];
+            if (asset.uri?.toLowerCase().endsWith('.gif')) {
+                console.log('🎬 GIF selected for profile:', asset.uri);
+            }
+            setAvatar(asset);
         }
     };
 
     const handlePickCover = async () => {
         const result = await launchImageLibrary({
-            mediaType: 'photo',
-            quality: 0.8,
+            mediaType: 'mixed',  // Changed from 'photo' to allow all image types including GIFs
+            quality: 1,  // Full quality to preserve GIF animation
         });
 
         if (result.assets && result.assets.length > 0) {
-            setCoverImage(result.assets[0]);
+            const asset = result.assets[0];
+            if (asset.uri?.toLowerCase().endsWith('.gif')) {
+                console.log('🎬 GIF selected for cover:', asset.uri);
+            }
+            setCoverImage(asset);
         }
     };
 
@@ -82,7 +90,28 @@ export default function EditProfileScreen() {
 
             const response = await api.updateProfile(formData);
             if (response.success && response.data) {
-                updateUser(response.data);
+                // Add cache-buster query parameter to force image refresh
+                const timestamp = `?t=${Date.now()}`;
+                const updatedData = {
+                    ...response.data,
+                    profile_picture_url: response.data.profile_picture_url
+                        ? `${response.data.profile_picture_url}${timestamp}`
+                        : '',
+                    cover_image_url: response.data.cover_image_url
+                        ? `${response.data.cover_image_url}${timestamp}`
+                        : '',
+                };
+
+                updateUser(updatedData);
+
+                // Clear FastImage caches
+                try {
+                    FastImage.clearMemoryCache();
+                    FastImage.clearDiskCache();
+                } catch (e) {
+                    console.warn('Could not clear FastImage cache:', e);
+                }
+
                 Alert.alert('Success', 'Profile updated successfully');
                 navigation.goBack();
             } else {
@@ -124,7 +153,7 @@ export default function EditProfileScreen() {
 
                 {/* Cover Image */}
                 <TouchableOpacity onPress={handlePickCover} style={styles.coverContainer}>
-                    <Image
+                    <FastImage
                         source={{ uri: coverImage?.uri || (user as any)?.cover_image_url || 'https://via.placeholder.com/800x400' }}
                         style={styles.coverImage}
                     />
@@ -136,7 +165,7 @@ export default function EditProfileScreen() {
                 {/* Profile Picture */}
                 <View style={styles.profileImageSection}>
                     <TouchableOpacity onPress={handlePickAvatar} style={styles.profileImageContainer}>
-                        <Image
+                        <FastImage
                             source={{ uri: avatar?.uri || user?.profile_picture_url }}
                             style={[styles.profileImage, { borderColor: colors.background }]}
                         />

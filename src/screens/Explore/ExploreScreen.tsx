@@ -22,7 +22,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import MIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Video from 'react-native-video';
 import { WebView } from 'react-native-webview';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect, useRoute } from '@react-navigation/native';
 import { useThemeStore } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useFollowStore } from '@/stores/followStore';
@@ -35,6 +35,7 @@ import OmzoCommentsSheet from '@/components/OmzoCommentsSheet';
 import ShareSheet from '@/components/ShareSheet';
 import type { User, Scribe, Omzo } from '@/types';
 import OmzoActionsSheet from '@/components/OmzoActionsSheet';
+import FastImage from 'react-native-fast-image';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -55,8 +56,8 @@ const ModalScribeImage = ({ uri }: { uri: string }) => {
         }, () => { });
     }, [uri]);
     return (
-        <Image
-            source={{ uri }}
+        <FastImage
+            source={{ uri: `${uri}?t=${Date.now()}` }}
             style={[styles.modalImage, { height: undefined, aspectRatio }]}
             resizeMode="cover"
         />
@@ -64,7 +65,50 @@ const ModalScribeImage = ({ uri }: { uri: string }) => {
 };
 
 export default function ExploreScreen() {
+
+    // Floating Search Bar Animation
+    const headerTranslateY = useRef(new Animated.Value(0)).current;
+    const lastScrollY = useRef(0);
+    const SEARCH_BAR_HEIGHT = 80; // Approximate height with padding
+
+    const onScroll = useCallback((event: any) => {
+        const currentScrollY = event.nativeEvent.contentOffset.y;
+        const diff = currentScrollY - lastScrollY.current;
+        
+        // Don't trigger if we haven't scrolled much (prevents flickering)
+        if (Math.abs(diff) < 5) return;
+
+        if (currentScrollY <= 0) {
+            // At the top, ensure it's visible
+            Animated.spring(headerTranslateY, {
+                toValue: 0,
+                useNativeDriver: true,
+                friction: 8,
+                tension: 40,
+            }).start();
+        } else if (diff > 10) {
+            // Scrolling down, hide it
+            Animated.spring(headerTranslateY, {
+                toValue: -SEARCH_BAR_HEIGHT - 20, // Extra margin to be safe
+                useNativeDriver: true,
+                friction: 8,
+                tension: 40,
+            }).start();
+        } else if (diff < -15) {
+            // Scrolling up, show it
+            Animated.spring(headerTranslateY, {
+                toValue: 0,
+                useNativeDriver: true,
+                friction: 8,
+                tension: 40,
+            }).start();
+        }
+
+        lastScrollY.current = currentScrollY;
+    }, [headerTranslateY]);
+
     const navigation = useNavigation();
+    const route = useRoute();
     const { colors } = useThemeStore();
     const { user } = useAuthStore();
     const { followStates, requestStatuses, setFollowState, batchSetFollowStates } = useFollowStore();
@@ -136,6 +180,56 @@ export default function ExploreScreen() {
             scribePostedListener.remove();
         };
     }, []);
+
+    // Listen for notification params and open comments if needed
+    useFocusEffect(
+        useCallback(() => {
+            const params: any = route.params;
+            console.log('🔍 ExploreScreen focus - params:', params);
+
+            if (params?.scribeId) {
+                console.log('🎯 Finding scribe:', params.scribeId);
+
+                // Try to find scribe in current feed
+                let targetScribe = exploreFeed.find(item => item.id === params.scribeId);
+
+                if (targetScribe) {
+                    // Scribe is in feed, just select it
+                    console.log('✅ Found scribe in feed:', params.scribeId);
+                    setSelectedScribe(targetScribe);
+                    setIsModalVisible(true);
+                } else {
+                    // Scribe not in feed, fetch it
+                    console.log('⬇️ Fetching scribe:', params.scribeId);
+                    api.getScribeDetail(params.scribeId)
+                        .then(response => {
+                            console.log('📦 Scribe API response:', JSON.stringify(response, null, 2));
+                            if (response.success && response.data) {
+                                console.log('✅ Fetched scribe:', response.data);
+                                setSelectedScribe(response.data);
+                                setIsModalVisible(true);
+                            } else {
+                                console.warn('⚠️ Failed to fetch scribe - response:', response);
+                            }
+                        })
+                        .catch(error => {
+                            console.error('❌ Error fetching scribe:', error instanceof Error ? error.message : error);
+                        });
+                }
+
+                // Set up comments
+                if (params?.openComments) {
+                    console.log('💬 Opening comments for scribe:', params.scribeId);
+                    setCommentScribeId(params.scribeId);
+                    setCommentCountForSheet(0);
+                    setIsCommentsVisible(true);
+                }
+
+                // Clear the params after handling
+                (navigation as any).setParams({ openComments: false, scribeId: undefined, commentId: undefined });
+            }
+        }, [route.params, navigation, exploreFeed])
+    );
 
     // Suddenly remove deleted scribes from feed
     useEffect(() => {
@@ -1839,8 +1933,21 @@ export default function ExploreScreen() {
 
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
-            {/* Search Bar */}
-            <View style={[styles.searchBarRow, { backgroundColor: colors.background }]}>
+            {/* Floating Search Bar */}
+            <Animated.View 
+                style={[
+                    styles.searchBarRow, 
+                    { 
+                        backgroundColor: colors.background,
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        zIndex: 100,
+                        transform: [{ translateY: headerTranslateY }]
+                    }
+                ]}
+            >
                 <View style={[styles.searchBarInner, { backgroundColor: colors.surface }]}>
                     <Icon name="search" size={18} color={colors.textSecondary} />
                     <TextInput
@@ -1852,12 +1959,12 @@ export default function ExploreScreen() {
                         autoCapitalize="none"
                     />
                     {searchQuery.length > 0 && (
-                        <TouchableOpacity onPress={() => handleSearch('')}>
+                        <TouchableOpacity onPress={() => handleSearch('')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                             <Icon name="close-circle" size={18} color={colors.textSecondary} />
                         </TouchableOpacity>
                     )}
                 </View>
-            </View>
+            </Animated.View>
 
             {isLoading ? (
                 <View style={styles.centered}>
@@ -1884,6 +1991,9 @@ export default function ExploreScreen() {
                     }
                     onEndReached={handleLoadMore}
                     onEndReachedThreshold={0.6}
+                    onScroll={onScroll}
+                    scrollEventThrottle={16}
+                    ListHeaderComponent={<View style={{ height: SEARCH_BAR_HEIGHT }} />}
                     ListFooterComponent={renderFooter}
                     // Performance / windowing
                     initialNumToRender={5}

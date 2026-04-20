@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
     View,
     Text,
@@ -9,18 +9,21 @@ import {
     TouchableOpacity,
     DeviceEventEmitter,
 } from 'react-native';
-import { useIsFocused, useFocusEffect } from '@react-navigation/native';
+import { useIsFocused, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '@/stores/themeStore';
 import api from '@/services/api';
 import type { Omzo as OmzoType } from '@/types';
 import OmzoCard from '@/components/OmzoCard';
+import OmzoCommentsSheet from '@/components/OmzoCommentsSheet';
 import { transformOmzoData } from '@/utils/api-helpers';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export default function OmzoScreen() {
     const { colors } = useThemeStore();
+    const navigation = useNavigation();
+    const route = useRoute();
     const isFocused = useIsFocused();
     const [omzos, setOmzos] = useState<OmzoType[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -28,6 +31,9 @@ export default function OmzoScreen() {
     const [cursor, setCursor] = useState<string | null>(null);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [screenHeight, setScreenHeight] = useState(SCREEN_HEIGHT);
+    const [isOmzoCommentsVisible, setIsOmzoCommentsVisible] = useState(false);
+    const [commentOmzoId, setCommentOmzoId] = useState<number | null>(null);
+    const [commentCountForSheet, setCommentCountForSheet] = useState(0);
     const flatListRef = useRef<FlatList>(null);
     const hasLoadedRef = useRef(false);
 
@@ -43,8 +49,67 @@ export default function OmzoScreen() {
         const subscription = DeviceEventEmitter.addListener('SCRIBE_DELETED', ({ scribeId }) => {
             setOmzos(prev => prev.filter(o => o.id !== scribeId));
         });
-        return () => subscription.remove();
+
+        return () => {
+            subscription.remove();
+        };
     }, []);
+
+    // Listen for notification params and open comments if needed
+    useFocusEffect(
+        useCallback(() => {
+            const params: any = route.params;
+            console.log('🔍 OmzoScreen focus - params:', params);
+
+            if (params?.omzoId) {
+                console.log('🎯 Finding omzo:', params.omzoId);
+
+                // Try to find omzo in current list
+                const omzoIndex = omzos.findIndex(item => item.id === params.omzoId);
+
+                if (omzoIndex !== -1) {
+                    // Omzo is in list, scroll to it
+                    console.log('✅ Found omzo in list, scrolling to index:', omzoIndex);
+                    setCurrentIndex(omzoIndex);
+                    if (flatListRef.current) {
+                        flatListRef.current.scrollToIndex({ index: omzoIndex, animated: true });
+                    }
+                } else {
+                    // Omzo not in list, fetch it
+                    console.log('⬇️ Fetching omzo:', params.omzoId);
+                    api.getOmzoDetail(params.omzoId)
+                        .then(response => {
+                            if (response?.success && response?.data) {
+                                console.log('✅ Fetched omzo:', response.data);
+                                // Add to beginning of list so it's visible
+                                const transformedOmzo = transformOmzoData(response.data);
+                                setOmzos(prev => [transformedOmzo, ...prev]);
+                                setCurrentIndex(0);
+                                if (flatListRef.current) {
+                                    flatListRef.current.scrollToIndex({ index: 0, animated: false });
+                                }
+                            } else {
+                                console.warn('⚠️ Failed to fetch omzo');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('❌ Error fetching omzo:', error);
+                        });
+                }
+
+                // Set up comments
+                if (params?.openComments) {
+                    console.log('💬 Opening comments for omzo:', params.omzoId);
+                    setCommentOmzoId(params.omzoId);
+                    setCommentCountForSheet(0);
+                    setIsOmzoCommentsVisible(true);
+                }
+
+                // Clear the params after handling
+                (navigation as any).setParams({ openComments: false, omzoId: undefined, commentId: undefined });
+            }
+        }, [route.params, navigation, omzos])
+    );
 
     // Refresh omzos when screen comes into focus (for cross-screen sync)
     useFocusEffect(
@@ -215,6 +280,17 @@ export default function OmzoScreen() {
                 ListFooterComponent={renderFooter}
                 ListEmptyComponent={renderEmpty}
             />
+            {commentOmzoId && (
+                <OmzoCommentsSheet
+                    isVisible={isOmzoCommentsVisible}
+                    onClose={() => {
+                        setIsOmzoCommentsVisible(false);
+                        setCommentOmzoId(null);
+                    }}
+                    omzoId={commentOmzoId}
+                    initialCommentCount={commentCountForSheet}
+                />
+            )}
         </View>
     );
 }

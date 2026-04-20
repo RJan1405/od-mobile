@@ -69,6 +69,7 @@ export interface Chat {
     is_message_request?: boolean;
     is_other_blocked?: boolean;
     am_i_blocked?: boolean;
+    user_marked_private?: boolean;
 }
 
 export interface Scribe {
@@ -184,7 +185,7 @@ export interface Notification {
     id: number;
     user: number;
     sender?: User;
-    notification_type: 'message' | 'call' | 'missed_call' | 'follow' | 'follow_request' | 'like' | 'comment' | 'mention' | 'story_view' | 'story_reply';
+    notification_type: 'message' | 'call' | 'missed_call' | 'follow' | 'follow_request' | 'like' | 'comment' | 'mention' | 'story_view' | 'story_reply' | 'omzo_comment' | 'omzo_like';
     title: string;
     message: string;
     data: Record<string, any>;

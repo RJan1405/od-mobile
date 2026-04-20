@@ -438,6 +438,8 @@ class WebSocketService {
             socket.onopen = () => {
                 console.log('Connected to sidebar');
                 this.reconnectAttempts.delete('sidebar');
+                // Send initial presence signal
+                this.sendPresence('active');
             };
 
             socket.onmessage = (event) => {
@@ -479,6 +481,28 @@ class WebSocketService {
             if (typeof this.sidebarSocket.close === 'function') this.sidebarSocket.close();
             this.sidebarSocket = null;
             this.sidebarCallbacks = [];
+        }
+    }
+
+    sendPresence(status: 'active' | 'away'): void {
+        const socket = this.sidebarSocket;
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            console.log(`📡 Sending ${status} signal to server...`);
+            // Send both presence and heartbeat to ensure backend captures it
+            const payload = {
+                type: 'heartbeat',
+                status: status,
+                state: status === 'active' ? 'online' : 'offline',
+                timestamp: new Date().toISOString()
+            };
+            socket.send(JSON.stringify(payload));
+            
+            // Also send dedicated presence type if required by newer backend modules
+            socket.send(JSON.stringify({
+                type: 'presence',
+                status: status,
+                is_online: status === 'active'
+            }));
         }
     }
 

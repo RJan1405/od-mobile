@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
     View,
     Text,
@@ -9,7 +9,9 @@ import {
     Platform,
     Image,
     Alert,
+    Animated,
 } from 'react-native';
+import { TapGestureHandler, State } from 'react-native-gesture-handler';
 import { useFocusEffect, useRoute, useNavigation } from '@react-navigation/native';
 import Video from 'react-native-video';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -58,6 +60,52 @@ export default function OmzoViewerScreen() {
     const [showShareSheet, setShowShareSheet] = useState(false);
     const [paused, setPaused] = useState(false);
     const [isMuted, setIsMuted] = useState(globalMuteState);
+
+    // Heart animation state
+    const heartScale = useRef(new Animated.Value(0)).current;
+    const heartOpacity = useRef(new Animated.Value(0)).current;
+    const doubleTapRef = useRef(null);
+
+    const showHeartAnimation = useCallback(() => {
+        heartScale.setValue(0);
+        heartOpacity.setValue(1);
+        Animated.parallel([
+            Animated.spring(heartScale, {
+                toValue: 1.6,
+                useNativeDriver: true,
+                friction: 6,
+                tension: 40,
+            }),
+            Animated.sequence([
+                Animated.delay(400),
+                Animated.timing(heartOpacity, {
+                    toValue: 0,
+                    duration: 400,
+                    useNativeDriver: true,
+                })
+            ])
+        ]).start();
+    }, [heartScale, heartOpacity]);
+
+    const onSingleTap = useCallback((event: any) => {
+        if (event.nativeEvent.state === State.ACTIVE) {
+            togglePlayPause();
+        }
+    }, [paused]);
+
+    const isLikedRef = useRef(isLiked);
+    isLikedRef.current = isLiked;
+
+    const onDoubleTap = useCallback((event: any) => {
+        if (event.nativeEvent.state === State.ACTIVE) {
+            showHeartAnimation();
+            if (!isLikedRef.current) {
+                requestAnimationFrame(() => {
+                    handleLike();
+                });
+            }
+        }
+    }, [handleLike, showHeartAnimation]);
 
     // Initial load by ID if needed (for chat navigation)
     useEffect(() => {
@@ -157,6 +205,21 @@ export default function OmzoViewerScreen() {
                 setCommentCount(omzo.comment_count || 0);
             }
         }, [omzo])
+    );
+
+    // Handle opening comments from notification
+    useFocusEffect(
+        React.useCallback(() => {
+            const params = (route.params as any);
+            console.log('🔍 OmzoViewerScreen focus - params:', params);
+
+            if (params?.openComments && omzo) {
+                console.log('💬 Opening comments for omzo:', omzo.id, 'commentId:', params.commentId);
+                setShowComments(true);
+                // Clear the params after handling
+                (navigation as any).setParams({ openComments: false, commentId: undefined });
+            }
+        }, [route.params, omzo, navigation])
     );
     const handleLike = async () => {
         if (!omzo) return;
@@ -421,20 +484,41 @@ export default function OmzoViewerScreen() {
                 </View>
             )}
 
-            {/* Tap to Pause/Play */}
-            <TouchableOpacity
-                style={styles.tapArea}
-                activeOpacity={1}
-                onPress={togglePlayPause}
-            />
+            {/* Tap Gestures for Pause/Play and Like */}
+            <TapGestureHandler
+                onHandlerStateChange={onSingleTap}
+                waitFor={doubleTapRef}
+            >
+                <TapGestureHandler
+                    ref={doubleTapRef}
+                    onHandlerStateChange={onDoubleTap}
+                    numberOfTaps={2}
+                >
+                    <View style={styles.tapArea} />
+                </TapGestureHandler>
+            </TapGestureHandler>
+
+            {/* Heart Animation Overlay */}
+            <Animated.View 
+                style={[
+                    styles.heartOverlay,
+                    {
+                        opacity: heartOpacity,
+                        transform: [{ scale: heartScale }]
+                    }
+                ]}
+                pointerEvents="none"
+            >
+                <Icon name="heart" size={100} color="#FF3B5C" />
+            </Animated.View>
 
             {/* Top Controls - Back Button and Options */}
             <View style={styles.topBar}>
-                <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+                <TouchableOpacity onPress={handleBack} style={styles.backButton} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                     <Icon name="chevron-back" size={32} color="#FFFFFF" style={{ textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 }} />
                 </TouchableOpacity>
                 <Text style={styles.topTitle}>Omzo</Text>
-                <TouchableOpacity style={styles.menuCircle} onPress={handleMoreActions}>
+                <TouchableOpacity style={styles.menuCircle} onPress={handleMoreActions} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                     <Icon name="ellipsis-vertical" size={26} color="#FFFFFF" style={{ textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 }} />
                 </TouchableOpacity>
             </View>
@@ -443,6 +527,7 @@ export default function OmzoViewerScreen() {
             <TouchableOpacity
                 style={styles.muteButton}
                 onPress={toggleMute}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
                 <Icon
                     name={isMuted ? "volume-mute" : "volume-high"}
@@ -469,6 +554,7 @@ export default function OmzoViewerScreen() {
                         style={styles.userInfoLeft}
                         onPress={handleProfilePress}
                         activeOpacity={0.7}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     >
                         <View style={styles.avatarContainer}>
                             {hasValidAvatar ? (
@@ -515,7 +601,7 @@ export default function OmzoViewerScreen() {
             {/* Right Side Actions */}
             <View style={styles.actionsColumn}>
                 {/* Like */}
-                <TouchableOpacity style={styles.actionButton} onPress={handleLike} activeOpacity={0.7}>
+                <TouchableOpacity style={styles.actionButton} onPress={handleLike} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 20, right: 20 }}>
                     <View style={styles.actionIconContainer}>
                         <Icon
                             name={isLiked ? 'heart' : 'heart-outline'}
@@ -528,7 +614,7 @@ export default function OmzoViewerScreen() {
                 </TouchableOpacity>
 
                 {/* Comment */}
-                <TouchableOpacity style={styles.actionButton} onPress={handleComments} activeOpacity={0.7}>
+                <TouchableOpacity style={styles.actionButton} onPress={handleComments} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 20, right: 20 }}>
                     <View style={styles.actionIconContainer}>
                         <Icon name="chatbubble-outline" size={32} color="#FFFFFF" style={styles.iconShadow} />
                     </View>
@@ -536,7 +622,7 @@ export default function OmzoViewerScreen() {
                 </TouchableOpacity>
 
                 {/* Repost */}
-                <TouchableOpacity style={styles.actionButton} onPress={handleRepost} activeOpacity={0.7}>
+                <TouchableOpacity style={styles.actionButton} onPress={handleRepost} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 20, right: 20 }}>
                     <View style={styles.actionIconContainer}>
                         <Icon
                             name={isReposted ? 'repeat' : 'repeat-outline'}
@@ -551,14 +637,14 @@ export default function OmzoViewerScreen() {
                 </TouchableOpacity>
 
                 {/* Share */}
-                <TouchableOpacity style={styles.actionButton} onPress={handleShare} activeOpacity={0.7}>
+                <TouchableOpacity style={styles.actionButton} onPress={handleShare} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 20, right: 20 }}>
                     <View style={styles.actionIconContainer}>
                         <Icon name="paper-plane-outline" size={32} color="#FFFFFF" style={[{ marginLeft: -2, marginTop: 2 }, styles.iconShadow]} />
                     </View>
                 </TouchableOpacity>
 
                 {/* Bookmark */}
-                <TouchableOpacity style={styles.actionButton} onPress={handleToggleSave} activeOpacity={0.7}>
+                <TouchableOpacity style={styles.actionButton} onPress={handleToggleSave} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 20, right: 20 }}>
                     <View style={styles.actionIconContainer}>
                         <Icon
                             name={isSaved ? 'bookmark' : 'bookmark-outline'}

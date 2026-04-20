@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import Video from 'react-native-video';
+import FastImage from 'react-native-fast-image';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { formatDistanceToNow } from 'date-fns';
@@ -101,15 +102,15 @@ const ScribeImage = ({ uri }: { uri: string }) => {
     }, [uri]);
 
     return (
-        <Image
+        <FastImage
             source={{ uri }}
             style={[styles.image, { height: undefined, aspectRatio }]}
-            resizeMode="cover"
+            resizeMode="contain"
         />
     );
 };
 
-export default React.memo(function ScribeCard({ scribe, onSaveToggle, onPress, onCommentPress, onDelete }: ScribeCardProps) {
+const ScribeCard = ({ scribe, onSaveToggle, onPress, onCommentPress, onDelete }: ScribeCardProps) => {
     const navigation = useNavigation();
     const { colors } = useThemeStore();
     const { user: currentUser } = useAuthStore();
@@ -122,7 +123,7 @@ export default React.memo(function ScribeCard({ scribe, onSaveToggle, onPress, o
 
     // Display settings
     const [activeTab, setActiveTab] = useState<'preview' | 'code'>('preview');
-    const [webviewHeight, setWebviewHeight] = useState(300);
+    const [webviewHeight, setWebviewHeight] = useState(150);
     const [showActions, setShowActions] = useState(false);
     const [showShareSheet, setShowShareSheet] = useState(false);
 
@@ -147,6 +148,10 @@ export default React.memo(function ScribeCard({ scribe, onSaveToggle, onPress, o
     const dislikeCount = interaction.dislike_count || 0;
     const isSaved = !!interaction.is_saved;
     const isReposted = !!interaction.is_reposted;
+
+    const avatarUri = displayScribe.user?.profile_picture_url || (displayScribe.user as any)?.avatar || '';
+    const isAvatarGif = avatarUri.toLowerCase().endsWith('.gif');
+    const avatarUriWithBuster = avatarUri;
     const repostCount = interaction.repost_count || 0;
 
     // Read follow state from global store — updates instantly when any screen toggles follow
@@ -375,7 +380,6 @@ export default React.memo(function ScribeCard({ scribe, onSaveToggle, onPress, o
         (navigation as any).navigate('Profile', { username: scribe.user.username });
     };
 
-    const avatarUri = displayScribe.user?.profile_picture_url || (displayScribe.user as any)?.avatar || '';
     const imageUri = displayScribe.media_url || displayScribe.image_url || (displayScribe as any).mediaUrl || (displayScribe as any).image || '';
     const videoUri = (displayScribe as any).video_url || (displayScribe as any).video_file || ((displayScribe as any).original_type === 'omzo' ? displayScribe.media_url : '');
 
@@ -457,7 +461,15 @@ export default React.memo(function ScribeCard({ scribe, onSaveToggle, onPress, o
                     <View style={styles.originalHeader}>
                         <View style={styles.originalAvatarWrap}>
                             {originalScribe.user?.profile_picture_url || originalScribe.user?.avatar ? (
-                                <Image source={{ uri: originalScribe.user.profile_picture_url || originalScribe.user.avatar }} style={styles.originalAvatar} />
+                                <Image
+                                    source={{
+                                        uri: (() => {
+                                            const url = originalScribe.user.profile_picture_url || originalScribe.user.avatar;
+                                            return url;
+                                        })()
+                                    }}
+                                    style={styles.originalAvatar}
+                                />
                             ) : (
                                 <View style={[styles.originalAvatar, styles.avatarFallback, { backgroundColor: colors.primary }]}>
                                     <Text style={styles.avatarLetter}>
@@ -477,7 +489,7 @@ export default React.memo(function ScribeCard({ scribe, onSaveToggle, onPress, o
                         <Text style={[styles.originalContent, { color: colors.textSecondary }]}>{originalScribe.content}</Text>
                     ) : null}
                     {(originalScribe.media_url || originalScribe.image_url || originalScribe.image) ? (
-                        <Image
+                        <FastImage
                             source={{ uri: (originalScribe.media_url || originalScribe.image_url || originalScribe.image)! }}
                             style={[styles.originalImage, { backgroundColor: colors.border }]}
                             resizeMode="cover"
@@ -492,7 +504,15 @@ export default React.memo(function ScribeCard({ scribe, onSaveToggle, onPress, o
                     <View style={styles.originalHeader}>
                         <View style={styles.originalAvatarWrap}>
                             {originalOmzo.user?.profile_picture_url || originalOmzo.user_avatar || originalOmzo.user?.avatar ? (
-                                <Image source={{ uri: (originalOmzo.user?.profile_picture_url || originalOmzo.user_avatar || originalOmzo.user?.avatar)! }} style={styles.originalAvatar} />
+                                <Image
+                                    source={{
+                                        uri: (() => {
+                                            const url = (originalOmzo.user?.profile_picture_url || originalOmzo.user_avatar || originalOmzo.user?.avatar)!;
+                                            return url;
+                                        })()
+                                    }}
+                                    style={styles.originalAvatar}
+                                />
                             ) : (
                                 <View style={[styles.originalAvatar, styles.avatarFallback, { backgroundColor: colors.primary }]}>
                                     <Text style={styles.avatarLetter}>
@@ -541,7 +561,11 @@ export default React.memo(function ScribeCard({ scribe, onSaveToggle, onPress, o
                     <View style={styles.header}>
                         <TouchableOpacity style={styles.avatarWrap} onPress={handleProfilePress} activeOpacity={0.85}>
                             {hasValidAvatar ? (
-                                <Image source={{ uri: avatarUri }} style={styles.avatar} />
+                                <Image
+                                    source={{ uri: avatarUriWithBuster }}
+                                    style={styles.avatar}
+                                    key={isAvatarGif ? `gif-${Date.now()}` : 'static'}
+                                />
                             ) : (
                                 <View style={[styles.avatar, styles.cardAvatarFallback, { backgroundColor: colors.primary }]}>
                                     <Text style={styles.cardAvatarLetter}>
@@ -752,7 +776,9 @@ export default React.memo(function ScribeCard({ scribe, onSaveToggle, onPress, o
             />
         </View>
     );
-});
+};
+
+export default React.memo(ScribeCard);
 
 const styles = StyleSheet.create({
     card: {

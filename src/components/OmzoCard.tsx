@@ -8,7 +8,9 @@ import {
     Image,
     Platform,
     Alert,
+    Animated,
 } from 'react-native';
+import { TapGestureHandler, State } from 'react-native-gesture-handler';
 import { useNavigation } from '@react-navigation/native';
 import Video from 'react-native-video';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -55,6 +57,32 @@ export default React.memo(function OmzoCard({ omzo, isActive, containerHeight, o
     const [isMuted, setIsMuted] = useState(globalMuteState);
     const [showComments, setShowComments] = useState(false);
     const [showActions, setShowActions] = useState(false);
+    
+    // Heart animation state
+    const heartScale = useRef(new Animated.Value(0)).current;
+    const heartOpacity = useRef(new Animated.Value(0)).current;
+    const doubleTapRef = useRef(null);
+
+    const showHeartAnimation = useCallback(() => {
+        heartScale.setValue(0);
+        heartOpacity.setValue(1);
+        Animated.parallel([
+            Animated.spring(heartScale, {
+                toValue: 1.6,
+                useNativeDriver: true,
+                friction: 6,
+                tension: 40,
+            }),
+            Animated.sequence([
+                Animated.delay(400),
+                Animated.timing(heartOpacity, {
+                    toValue: 0,
+                    duration: 400,
+                    useNativeDriver: true,
+                })
+            ])
+        ]).start();
+    }, [heartScale, heartOpacity]);
 
     // Use LOCAL state for interactions - don't subscribe to store for reading!
     const [localLikeCount, setLocalLikeCount] = useState(omzo.like_count || 0);
@@ -208,6 +236,28 @@ export default React.memo(function OmzoCard({ omzo, isActive, containerHeight, o
         setPaused(!paused);
     };
 
+    const onSingleTap = useCallback((event: any) => {
+        if (event.nativeEvent.state === State.ACTIVE) {
+            togglePlayPause();
+        }
+    }, [paused]);
+
+    const likedRef = useRef(localLiked);
+    likedRef.current = localLiked;
+
+    const onDoubleTap = useCallback((event: any) => {
+        if (event.nativeEvent.state === State.ACTIVE) {
+            showHeartAnimation();
+            if (!likedRef.current) {
+                // Defer the state processing slightly to ensure animation starts 
+                // perfectly smooth without JS thread interference from state updates
+                requestAnimationFrame(() => {
+                    handleLike();
+                });
+            }
+        }
+    }, [handleLike, showHeartAnimation]);
+
     const toggleMute = () => {
         const newMuteState = !isMuted;
         setIsMuted(newMuteState);
@@ -312,6 +362,8 @@ export default React.memo(function OmzoCard({ omzo, isActive, containerHeight, o
 
     // Check for valid avatar URL
     const avatarUri = omzo.user?.profile_picture_url || omzo.user_avatar || '';
+    const isAvatarGif = avatarUri.toLowerCase().endsWith('.gif');
+    const avatarUriWithBuster = avatarUri;
     const hasValidAvatar = avatarUri && avatarUri !== 'null' && avatarUri.length > 0 && avatarUri.startsWith('http');
 
     // Check for valid video URL
@@ -348,17 +400,38 @@ export default React.memo(function OmzoCard({ omzo, isActive, containerHeight, o
                 </View>
             )}
 
-            {/* Tap to Pause/Play */}
-            <TouchableOpacity
-                style={styles.tapArea}
-                activeOpacity={1}
-                onPress={togglePlayPause}
-            />
+            {/* Tap Gestures for Pause/Play and Like */}
+            <TapGestureHandler
+                onHandlerStateChange={onSingleTap}
+                waitFor={doubleTapRef}
+            >
+                <TapGestureHandler
+                    ref={doubleTapRef}
+                    onHandlerStateChange={onDoubleTap}
+                    numberOfTaps={2}
+                >
+                    <View style={styles.tapArea} />
+                </TapGestureHandler>
+            </TapGestureHandler>
+
+            {/* Heart Animation Overlay */}
+            <Animated.View 
+                style={[
+                    styles.heartOverlay,
+                    {
+                        opacity: heartOpacity,
+                        transform: [{ scale: heartScale }]
+                    }
+                ]}
+                pointerEvents="none"
+            >
+                <Icon name="heart" size={100} color="#FF3B5C" />
+            </Animated.View>
 
             {/* Top Controls - Title and Options */}
             <View style={styles.topBar}>
                 <Text style={styles.topTitle}>Omzo</Text>
-                <TouchableOpacity style={styles.menuCircle} onPress={handleMoreActions}>
+                <TouchableOpacity style={styles.menuCircle} onPress={handleMoreActions} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                     <Icon name="ellipsis-vertical" size={26} color="#FFFFFF" style={{ textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 }} />
                 </TouchableOpacity>
             </View>
@@ -367,6 +440,7 @@ export default React.memo(function OmzoCard({ omzo, isActive, containerHeight, o
             <TouchableOpacity
                 style={styles.muteButton}
                 onPress={toggleMute}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
                 <Icon
                     name={isMuted ? "volume-mute" : "volume-high"}
@@ -393,10 +467,14 @@ export default React.memo(function OmzoCard({ omzo, isActive, containerHeight, o
                         style={styles.userInfoLeft}
                         onPress={handleProfilePress}
                         activeOpacity={0.7}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     >
                         <View style={styles.avatarContainer}>
                             {hasValidAvatar ? (
-                                <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+                                <Image
+                                    source={{ uri: avatarUriWithBuster }}
+                                    style={styles.avatarImage}
+                                />
                             ) : (
                                 <View style={[styles.avatarImage, styles.avatarPlaceholder]}>
                                     <Text style={styles.avatarText}>
@@ -439,7 +517,7 @@ export default React.memo(function OmzoCard({ omzo, isActive, containerHeight, o
             {/* Right Side Actions */}
             <View style={styles.actionsColumn}>
                 {/* Like */}
-                <TouchableOpacity style={styles.actionButton} onPress={handleLike} activeOpacity={0.7}>
+                <TouchableOpacity style={styles.actionButton} onPress={handleLike} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 20, right: 20 }}>
                     <View style={styles.actionIconContainer}>
                         <Icon
                             name={localLiked ? 'heart' : 'heart-outline'}
@@ -452,7 +530,7 @@ export default React.memo(function OmzoCard({ omzo, isActive, containerHeight, o
                 </TouchableOpacity>
 
                 {/* Comment */}
-                <TouchableOpacity style={styles.actionButton} onPress={handleComments} activeOpacity={0.7}>
+                <TouchableOpacity style={styles.actionButton} onPress={handleComments} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 20, right: 20 }}>
                     <View style={styles.actionIconContainer}>
                         <Icon name="chatbubble-outline" size={32} color="#FFFFFF" style={styles.iconShadow} />
                     </View>
@@ -460,7 +538,7 @@ export default React.memo(function OmzoCard({ omzo, isActive, containerHeight, o
                 </TouchableOpacity>
 
                 {/* Repost */}
-                <TouchableOpacity style={styles.actionButton} onPress={handleRepost} activeOpacity={0.7}>
+                <TouchableOpacity style={styles.actionButton} onPress={handleRepost} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 20, right: 20 }}>
                     <View style={styles.actionIconContainer}>
                         <Icon
                             name={localReposted ? 'repeat' : 'repeat-outline'}
@@ -475,14 +553,14 @@ export default React.memo(function OmzoCard({ omzo, isActive, containerHeight, o
                 </TouchableOpacity>
 
                 {/* Share */}
-                <TouchableOpacity style={styles.actionButton} onPress={handleShare} activeOpacity={0.7}>
+                <TouchableOpacity style={styles.actionButton} onPress={handleShare} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 20, right: 20 }}>
                     <View style={styles.actionIconContainer}>
                         <Icon name="paper-plane-outline" size={32} color="#FFFFFF" style={[{ marginLeft: -2, marginTop: 2 }, styles.iconShadow]} />
                     </View>
                 </TouchableOpacity>
 
                 {/* Bookmark */}
-                <TouchableOpacity style={styles.actionButton} onPress={handleToggleSave} activeOpacity={0.7}>
+                <TouchableOpacity style={styles.actionButton} onPress={handleToggleSave} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 20, right: 20 }}>
                     <View style={styles.actionIconContainer}>
                         <Icon
                             name={localSaved ? 'bookmark' : 'bookmark-outline'}
@@ -735,5 +813,15 @@ const styles = StyleSheet.create({
         textShadowColor: 'rgba(0, 0, 0, 0.75)',
         textShadowOffset: { width: 0, height: 1 },
         textShadowRadius: 4,
+    },
+    heartOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 20,
     },
 });

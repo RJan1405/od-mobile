@@ -55,9 +55,9 @@ export type RootStackParamList = {
 
 export type MainTabParamList = {
     Home: undefined;
-    Omzo: undefined;
+    Omzo: { openComments?: boolean; omzoId?: number; commentId?: number };
     Upload: undefined;
-    Explore: undefined;
+    Explore: { openComments?: boolean; scribeId?: number; commentId?: number };
     MyProfile: undefined;
 };
 
